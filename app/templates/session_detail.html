@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Session detail — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Session detail</h1>
+    <p>{{ s.date.strftime('%A, %d %b %Y') }} · {{ s.source.name }}</p>
+  </div>
+  <a href="{{ url_for('sessions.list_sessions') }}" class="btn">← Back to Sessions</a>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">Edit</div>
+    <p class="panel-subtitle">Changing the date or time recalculates the amount using the rate that applies to the new date — never a hand-typed number.</p>
+
+    <form method="post" action="{{ url_for('sessions.edit', session_id=s.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-row">
+        <label for="date">Date</label>
+        <input type="date" id="date" name="date" value="{{ s.date.isoformat() }}" required>
+      </div>
+
+      {% if s.mode == 'FIXED_HOURS' %}
+      <div class="form-row">
+        <label for="quantity_hours">Quantity (hours)</label>
+        <input type="number" step="0.01" min="0.01" id="quantity_hours" name="quantity_hours" value="{{ s.quantity_hours }}" required>
+      </div>
+      {% else %}
+      <div class="form-grid-2">
+        <div class="form-row">
+          <label for="start_time">Start time</label>
+          <input type="time" id="start_time" name="start_time" value="{{ s.start_time.strftime('%H:%M') }}" required>
+        </div>
+        <div class="form-row">
+          <label for="end_time">End time</label>
+          <input type="time" id="end_time" name="end_time" value="{{ s.end_time.strftime('%H:%M') }}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" name="is_overnight" style="width:auto;"> This session crosses midnight
+        </label>
+      </div>
+      {% endif %}
+
+      <div class="form-row">
+        <label for="notes">Notes (optional)</label>
+        <textarea id="notes" name="notes" rows="3">{{ s.notes or '' }}</textarea>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block">Save changes</button>
+    </form>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="panel-title">Calculated (read-only)</div>
+      <table class="data-table">
+        <tr><td>Source</td><td><span class="source-chip">{{ s.source.name }}</span></td></tr>
+        <tr><td>Mode</td><td>{{ s.mode.replace('_', ' ').title() }}</td></tr>
+        <tr><td>Duration</td><td>{{ (s.duration_minutes // 60) }}h {{ '%02d'|format(s.duration_minutes % 60) }}m ({{ s.duration_minutes }} min)</td></tr>
+        <tr><td>Applied rate</td><td>{{ currency }} {{ s.applied_rate }}/h</td></tr>
+        <tr><td>Amount</td><td class="amount-positive">{{ currency }} {{ "{:,.2f}".format(s.calculated_amount) }}</td></tr>
+        <tr><td>Status</td><td>{{ s.status }}</td></tr>
+        <tr><td>Raw input</td><td style="font-family:var(--font-mono); font-size:12px;">{{ s.raw_input or '—' }}</td></tr>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Danger zone</div>
+      <form method="post" action="{{ url_for('sessions.delete', session_id=s.id) }}" onsubmit="return confirm('Delete this session? This cannot be undone.');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger btn-block">Delete this session</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

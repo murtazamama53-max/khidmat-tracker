@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ student.name }} — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>{{ student.name }}</h1>
+    <p>{{ 'Active' if student.active else 'Inactive' }} student{% if student.note %} · {{ student.note }}{% endif %}</p>
+  </div>
+  <form method="post" action="{{ url_for('students.toggle_active', student_id=student.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn">{{ 'Mark Inactive' if student.active else 'Mark Active' }}</button>
+  </form>
+</div>
+
+<div class="grid-2">
+  <div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="panel-title">Fee History</div>
+      <p class="panel-subtitle">Old billing periods keep the fee that was in force then — changing this never rewrites past invoices</p>
+      {% if fee_periods %}
+        {% for fp in fee_periods %}
+        <div class="rate-timeline-item">
+          <span>{{ fp.effective_from.strftime('%d %b %Y') }} → {{ fp.effective_to.strftime('%d %b %Y') if fp.effective_to else 'present' }}</span>
+          <span class="amount-positive">{{ currency }} {{ fp.amount }}{% if fp.due_day %} · due day {{ fp.due_day }}{% endif %}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p style="color:var(--accent-gold); font-size:12.5px;">No fee defined yet — set one below before generating an invoice.</p>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Invoices</div>
+      {% if invoice_rows %}
+        {% for row in invoice_rows %}
+        <div style="border:1px solid var(--border-glass); border-radius:var(--radius-md); padding:14px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong>{{ row.invoice.period_start.strftime('%d %b') }} – {{ row.invoice.period_end.strftime('%d %b %Y') }}</strong>
+            <span class="source-chip" style="{% if row.display_status == 'paid' %}border-color:var(--accent-emerald); color:var(--accent-emerald);{% elif row.display_status == 'overdue' %}border-color:var(--accent-danger); color:var(--accent-danger);{% elif row.display_status == 'partial' %}border-color:var(--accent-gold); color:var(--accent-gold);{% endif %}">
+              {{ row.display_status.title() }}
+            </span>
+          </div>
+          <table class="data-table">
+            <tr><td>Fee</td><td>{{ currency }} {{ "{:,.2f}".format(row.invoice.amount) }}</td></tr>
+            <tr><td>Paid</td><td class="amount-positive">{{ currency }} {{ "{:,.2f}".format(row.total_paid) }}</td></tr>
+            <tr><td>Remaining</td><td>{{ currency }} {{ "{:,.2f}".format(row.remaining) }}</td></tr>
+            {% if row.invoice.due_date %}<tr><td>Due</td><td>{{ row.invoice.due_date.strftime('%d %b %Y') }}</td></tr>{% endif %}
+            {% if row.adj_total != 0 %}<tr><td>Adjustments</td><td>{{ currency }} {{ "{:,.2f}".format(row.adj_total) }}</td></tr>{% endif %}
+          </table>
+
+          {% if row.remaining > 0 %}
+          <form method="post" action="{{ url_for('students.add_payment', invoice_id=row.invoice.id) }}" style="display:flex; gap:8px; margin-top:10px; align-items:flex-end;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-row" style="margin-bottom:0; flex:1;">
+              <label>Record payment</label>
+              <input type="number" step="0.01" min="0.01" name="amount" placeholder="Amount" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="padding:11px 16px;">Add</button>
+          </form>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('students.add_adjustment') }}" style="display:flex; gap:8px; margin-top:8px; align-items:flex-end;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="invoice_id" value="{{ row.invoice.id }}">
+            <input type="hidden" name="redirect_to" value="{{ url_for('students.detail', student_id=student.id) }}">
+            <div class="form-row" style="margin-bottom:0;">
+              <label>Type</label>
+              <select name="type" style="padding:8px;">
+                <option value="bonus">Bonus</option>
+                <option value="deduction">Deduction</option>
+              </select>
+            </div>
+            <div class="form-row" style="margin-bottom:0; flex:1;">
+              <label>Amount</label>
+              <input type="number" step="0.01" min="0.01" name="amount" required>
+            </div>
+            <div class="form-row" style="margin-bottom:0; flex:2;">
+              <label>Reason</label>
+              <input type="text" name="reason" required>
+            </div>
+            <button type="submit" class="btn" style="padding:11px 16px;">Add</button>
+          </form>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">
+          <div class="emoji">◈</div>
+          <div>No invoices generated yet.</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="panel-title">Add Fee Period</div>
+      <form method="post" action="{{ url_for('students.add_fee_period', student_id=student.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row">
+          <label for="amount">Fee ({{ currency }})</label>
+          <input type="number" step="0.01" min="0.01" id="amount" name="amount" required>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-row">
+            <label for="fp-from">Effective from</label>
+            <input type="date" id="fp-from" name="effective_from" required>
+          </div>
+          <div class="form-row">
+            <label for="fp-to">Effective to (optional)</label>
+            <input type="date" id="fp-to" name="effective_to">
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="due-day">Due day of month (optional)</label>
+          <input type="number" min="1" max="28" id="due-day" name="due_day">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Set Fee</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Generate Invoice</div>
+      <p class="panel-subtitle">Fee is pulled from the period covering the start date and locked in — later fee changes won't affect it.</p>
+      <form method="post" action="{{ url_for('students.add_invoice', student_id=student.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-grid-2">
+          <div class="form-row">
+            <label for="period_start">Period start</label>
+            <input type="date" id="period_start" name="period_start" required>
+          </div>
+          <div class="form-row">
+            <label for="period_end">Period end</label>
+            <input type="date" id="period_end" name="period_end" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="due_date">Due date (optional)</label>
+          <input type="date" id="due_date" name="due_date">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not fee_periods }}>Generate Invoice</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

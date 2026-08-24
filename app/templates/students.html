@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Tuition — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Tuition</h1>
+    <p>Students, fixed fees, invoices, and payments — kept separate from the hourly engine</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">Students</div>
+    {% if students %}
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Status</th><th>Note</th><th></th></tr></thead>
+      <tbody>
+        {% for st in students %}
+        <tr>
+          <td>{{ st.name }}</td>
+          <td><span class="source-chip">{{ 'Active' if st.active else 'Inactive' }}</span></td>
+          <td style="color:var(--text-muted); font-size:12.5px;">{{ st.note or '—' }}</td>
+          <td><a href="{{ url_for('students.detail', student_id=st.id) }}" class="btn" style="padding:6px 12px; font-size:12px;">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="emoji">◈</div>
+      <div>No students yet. Add one on the right to start billing tuition.</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Add Student</div>
+    <form method="post" action="{{ url_for('students.add_student') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-row">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required>
+      </div>
+      <div class="form-row">
+        <label for="note">Note (optional)</label>
+        <input type="text" id="note" name="note" placeholder="e.g. contact info, schedule">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Add Student</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

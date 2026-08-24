@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Settings — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Settings</h1>
+    <p>App lock and database backups</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">App Lock (PIN)</div>
+    <p class="panel-subtitle">
+      When set, the app auto-locks after {{ config.PIN_AUTO_LOCK_MINUTES }} minutes idle — data stays loaded,
+      but the screen is hidden until you enter your PIN. This is separate from your login password.
+    </p>
+
+    {% if user.pin_hash %}
+      <div class="sync-pill" style="margin-bottom:16px;"><span class="dot"></span> PIN lock is on</div>
+      <div style="display:flex; gap:10px;">
+        <form method="post" action="{{ url_for('settings.lock') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary">Lock Now</button>
+        </form>
+        <form method="post" action="{{ url_for('settings.remove_pin') }}" onsubmit="return confirm('Remove the app-lock PIN?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger">Remove PIN</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="sync-pill" style="margin-bottom:16px;"><span class="dot off"></span> PIN lock is off</div>
+      <form method="post" action="{{ url_for('settings.set_pin') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row">
+          <label for="pin">New PIN (4-8 digits)</label>
+          <input type="password" inputmode="numeric" pattern="[0-9]*" id="pin" name="pin" required autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label for="confirm_pin">Confirm PIN</label>
+          <input type="password" inputmode="numeric" pattern="[0-9]*" id="confirm_pin" name="confirm_pin" required autocomplete="off">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Set PIN</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Backups</div>
+    <p class="panel-subtitle">
+      Encrypted, timestamped snapshots of your database, stored privately (never publicly accessible).
+      Restoring automatically takes a safety backup of the current state first.
+    </p>
+    {% if not using_sqlite %}
+    <div class="empty-state">
+      <div class="emoji">◈</div>
+      <div>This deployment uses an external PostgreSQL database, not local SQLite — back it up using your hosting provider's own backup/export tools instead.</div>
+    </div>
+    {% else %}
+    <form method="post" action="{{ url_for('settings.create_backup') }}" style="margin-bottom:18px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-primary btn-block">Backup Now</button>
+    </form>
+
+    {% if backups %}
+    <table class="data-table">
+      <thead><tr><th>Created</th><th>Size</th><th></th></tr></thead>
+      <tbody>
+        {% for b in backups %}
+        <tr>
+          <td>{{ b.created_at.strftime('%d %b %Y, %I:%M %p') }} UTC</td>
+          <td>{{ "%.1f"|format(b.size_bytes / 1024) }} KB</td>
+          <td style="display:flex; gap:6px;">
+            <a href="{{ url_for('settings.download_backup', filename=b.filename) }}" class="btn" style="padding:6px 12px; font-size:12px;">Export</a>
+            <form method="post" action="{{ url_for('settings.restore_backup_route', filename=b.filename) }}" onsubmit="return confirm('Restore this backup? Your current data will be safety-backed-up first, then replaced.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Restore</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state"><div class="emoji">◈</div><div>No backups yet.</div></div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

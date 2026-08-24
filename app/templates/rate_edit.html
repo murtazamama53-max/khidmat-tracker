@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Edit rate — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Edit rate period</h1>
+    <p>{{ source.name }} · {{ rate.effective_from.strftime('%d %b %Y') }} → {{ rate.effective_to.strftime('%d %b %Y') if rate.effective_to else 'present' }}</p>
+  </div>
+  <a href="{{ url_for('rates.index') }}" class="btn">← Back to Rates</a>
+</div>
+
+<div class="panel" style="max-width:480px;">
+  <p class="panel-subtitle">Sessions already saved in this date range keep the amount they were calculated with — editing this rate only affects future calculations and reports, never past sessions.</p>
+
+  <form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-row">
+      <label for="rate">Rate ({{ currency }} / hour)</label>
+      <input type="number" step="0.01" min="0.01" id="rate" name="rate" value="{{ rate.rate }}" required>
+    </div>
+    <div class="form-grid-2">
+      <div class="form-row">
+        <label for="effective_from">Effective from</label>
+        <input type="date" id="effective_from" name="effective_from" value="{{ rate.effective_from.isoformat() }}" required>
+      </div>
+      <div class="form-row">
+        <label for="effective_to">Effective to (optional)</label>
+        <input type="date" id="effective_to" name="effective_to" value="{{ rate.effective_to.isoformat() if rate.effective_to else '' }}">
+      </div>
+    </div>
+    <div class="form-row">
+      <label for="notes">Notes</label>
+      <input type="text" id="notes" name="notes" value="{{ rate.notes or '' }}">
+    </div>
+    <button type="submit" class="btn btn-primary btn-block">Save changes</button>
+  </form>
+</div>
+{% endblock %}

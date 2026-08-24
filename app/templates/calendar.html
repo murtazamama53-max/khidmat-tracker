@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Calendar — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Calendar</h1>
+    <p>Google Calendar as an input source — the calculation engine always has the final say</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">Connection</div>
+    {% if not is_configured %}
+      <div class="flash flash-error">
+        Google Calendar isn't configured yet. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI
+        in your .env file — see the README for the Google Cloud setup steps.
+      </div>
+    {% elif account %}
+      <div class="sync-pill" style="margin-bottom:14px;">
+        <span class="dot"></span> Google Calendar — Connected{% if account.google_email %} ({{ account.google_email }}){% endif %}
+      </div>
+      <table class="data-table" style="margin-bottom:16px;">
+        <tr><td>Connected calendar</td><td>{{ account.calendar_id }}</td></tr>
+        <tr><td>Last sync</td><td>{{ account.last_sync_at.strftime('%d %b %Y, %I:%M %p') if account.last_sync_at else 'Never synced yet' }}</td></tr>
+      </table>
+      <div style="display:flex; gap:10px;">
+        <form method="post" action="{{ url_for('calendar.sync_now') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary">Sync Now</button>
+        </form>
+        <form method="post" action="{{ url_for('calendar.disconnect') }}" onsubmit="return confirm('Disconnect Google Calendar? Previously imported sessions are kept.');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger">Disconnect</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="sync-pill" style="margin-bottom:14px;">
+        <span class="dot off"></span> Google Calendar — Not connected
+      </div>
+      <a href="{{ url_for('calendar.connect') }}" class="btn btn-primary">Connect Google Calendar</a>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Recent Syncs</div>
+    {% if recent_syncs %}
+    <table class="data-table">
+      <thead><tr><th>Started</th><th>Found</th><th>Imported</th><th>Updated</th><th>Review</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for log in recent_syncs %}
+        <tr>
+          <td>{{ log.started_at.strftime('%d %b, %I:%M %p') }}</td>
+          <td>{{ log.events_found }}</td>
+          <td>{{ log.events_imported }}</td>
+          <td>{{ log.events_updated }}</td>
+          <td>{{ log.events_needing_review }}</td>
+          <td>{% if log.status == 'success' %}<span class="source-chip" style="color:var(--accent-emerald); border-color:var(--accent-emerald);">OK</span>{% else %}<span class="source-chip" style="color:var(--accent-danger); border-color:var(--accent-danger);" title="{{ log.error_text }}">Error</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state"><div class="emoji">◈</div><div>No syncs yet.</div></div>
+    {% endif %}
+  </div>
+</div>
+
+{% if drafts %}
+<div class="panel" style="margin-bottom:18px;">
+  <div class="panel-title">{{ drafts|length }} event{{ 's' if drafts|length != 1 }} need{{ '' if drafts|length != 1 else 's' }} source mapping</div>
+  <p class="panel-subtitle">These calendar events couldn't be auto-mapped. Nothing was guessed — review each one.</p>
+  {% for d in drafts %}
+  <div style="border:1px solid var(--border-glass); border-radius:var(--radius-md); padding:14px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;">
+    <div>
+      <strong>{{ d.title }}</strong><br>
+      <span style="font-size:12px; color:var(--text-muted);">{{ d.event_date.strftime('%d %b %Y') }} · {{ d.start_time.strftime('%I:%M %p') }}–{{ d.end_time.strftime('%I:%M %p') }} · {{ d.reason }}</span>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <form method="post" action="{{ url_for('calendar.resolve_draft', draft_id=d.id) }}" style="display:flex; gap:8px;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <select name="source_id" style="padding:8px;" required>
+          <option value="">Map to...</option>
+          {% for src in sources %}<option value="{{ src.id }}">{{ src.name }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary" style="padding:9px 14px; font-size:12.5px;">Save</button>
+      </form>
+      <form method="post" action="{{ url_for('calendar.ignore_draft', draft_id=d.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn" style="padding:9px 14px; font-size:12.5px;">Ignore</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">Mapping Rules</div>
+    <p class="panel-subtitle">Events whose title contains a pattern auto-map to a source. Unmatched events become drafts above — never guessed.</p>
+    {% if mappings %}
+      {% for m in mappings %}
+      <div class="rate-timeline-item">
+        <span>"{{ m.title_pattern }}"{% if m.calendar_id %} on {{ m.calendar_id }}{% endif %} → {{ m.source.name }}</span>
+        <form method="post" action="{{ url_for('calendar.delete_mapping', mapping_id=m.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn" style="padding:4px 10px; font-size:11.5px;">Remove</button>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p style="color:var(--text-muted); font-size:13px;">No mapping rules yet — add one below.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Add Mapping Rule</div>
+    <form method="post" action="{{ url_for('calendar.add_mapping') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-row">
+        <label for="title_pattern">Title contains</label>
+        <input type="text" id="title_pattern" name="title_pattern" placeholder="e.g. SBHS" required>
+      </div>
+      <div class="form-row">
+        <label for="map-source">Maps to source</label>
+        <select id="map-source" name="source_id" required>
+          {% for src in sources %}<option value="{{ src.id }}">{{ src.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="calendar_id">Limit to calendar ID (optional)</label>
+        <input type="text" id="calendar_id" name="calendar_id" placeholder="Leave blank to match any calendar">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not sources }}>Add Rule</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Sessions — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Sessions</h1>
+    <p>{% if filtered_date %}Showing {{ filtered_date.strftime('%d %b %Y') }} — <a href="{{ url_for('sessions.list_sessions') }}" style="color:var(--accent-cyan);">clear filter</a>{% else %}Full history of your recorded Khidmat sessions{% endif %}</p>
+  </div>
+  <button class="btn btn-primary" onclick="openQuickAdd()">+ Add Session</button>
+</div>
+
+<div class="panel">
+  {% if sessions %}
+  <table class="data-table">
+    <thead>
+      <tr><th>Date</th><th>Source</th><th>Time / Qty</th><th>Duration</th><th>Rate</th><th>Earning</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td>{{ s.date.strftime('%d %b %Y') }}</td>
+        <td><span class="source-chip">{{ s.source.name }}</span></td>
+        <td>
+          {% if s.mode == 'EXACT_TIME' %}{{ s.start_time.strftime('%I:%M %p') }}–{{ s.end_time.strftime('%I:%M %p') }}
+          {% else %}{{ s.decimal_hours }}h fixed{% endif %}
+        </td>
+        <td>{{ (s.duration_minutes // 60) }}h {{ '%02d'|format(s.duration_minutes % 60) }}m</td>
+        <td>{{ currency }} {{ s.applied_rate }}/h</td>
+        <td class="amount-positive">{{ currency }} {{ "{:,.2f}".format(s.calculated_amount) }}</td>
+        <td>{{ s.status }}</td>
+        <td style="display:flex; gap:6px;">
+          <a href="{{ url_for('sessions.view', session_id=s.id) }}" class="btn" style="padding:6px 12px; font-size:12px;">Edit</a>
+          <form method="post" action="{{ url_for('sessions.delete', session_id=s.id) }}" onsubmit="return confirm('Delete this session? This cannot be undone.');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="emoji">◈</div>
+    <div>No sessions recorded yet. Use <strong>+ Add Session</strong> to log your first one.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% include "_quick_add_modal.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/quick_add.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Goals — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Goals</h1>
+    <p>Monthly targets, tracked against real recorded earnings</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">This Month's Progress</div>
+    <p class="panel-subtitle">Computed from actual sessions, invoices, and adjustments dated this month</p>
+
+    <div style="margin-bottom:22px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13.5px;">
+        <span>Income</span>
+        <span>{{ currency }} {{ "{:,.0f}".format(progress.income_current) }}{% if progress.income_target %} / {{ currency }} {{ "{:,.0f}".format(progress.income_target) }}{% endif %}</span>
+      </div>
+      {% if progress.income_pct is not none %}
+      <div style="height:8px; border-radius:99px; background:rgba(255,255,255,0.06); overflow:hidden;">
+        <div style="height:100%; width:{{ progress.income_pct }}%; background:linear-gradient(90deg, var(--accent-emerald), var(--accent-cyan)); border-radius:99px;"></div>
+      </div>
+      <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">{{ "%.1f"|format(progress.income_pct) }}%</div>
+      {% else %}
+      <div style="font-size:12px; color:var(--text-muted);">No target set</div>
+      {% endif %}
+    </div>
+
+    <div style="margin-bottom:22px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13.5px;">
+        <span>Hours</span>
+        <span>{{ "%.1f"|format(progress.hours_current) }}{% if progress.hours_target %} / {{ progress.hours_target }} hrs{% endif %}</span>
+      </div>
+      {% if progress.hours_pct is not none %}
+      <div style="height:8px; border-radius:99px; background:rgba(255,255,255,0.06); overflow:hidden;">
+        <div style="height:100%; width:{{ progress.hours_pct }}%; background:linear-gradient(90deg, var(--accent-cyan), var(--accent-violet)); border-radius:99px;"></div>
+      </div>
+      <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">{{ "%.1f"|format(progress.hours_pct) }}%</div>
+      {% else %}
+      <div style="font-size:12px; color:var(--text-muted);">No target set</div>
+      {% endif %}
+    </div>
+
+    <div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13.5px;">
+        <span>Sessions</span>
+        <span>{{ progress.sessions_current }}{% if progress.sessions_target %} / {{ progress.sessions_target }}{% endif %}</span>
+      </div>
+      {% if progress.sessions_pct is not none %}
+      <div style="height:8px; border-radius:99px; background:rgba(255,255,255,0.06); overflow:hidden;">
+        <div style="height:100%; width:{{ progress.sessions_pct }}%; background:linear-gradient(90deg, var(--accent-gold), var(--accent-emerald)); border-radius:99px;"></div>
+      </div>
+      <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">{{ "%.1f"|format(progress.sessions_pct) }}%</div>
+      {% else %}
+      <div style="font-size:12px; color:var(--text-muted);">No target set</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Set Targets</div>
+    <p class="panel-subtitle">Leave a field blank to clear that target</p>
+    <form method="post" action="{{ url_for('goals.save') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-row">
+        <label for="income">Monthly income target ({{ currency }})</label>
+        <input type="number" step="0.01" min="0.01" id="income" name="monthly_income_target" value="{{ goal.monthly_income_target if goal else '' }}">
+      </div>
+      <div class="form-row">
+        <label for="hours">Monthly hours target</label>
+        <input type="number" step="0.1" min="0.1" id="hours" name="monthly_hours_target" value="{{ goal.monthly_hours_target if goal else '' }}">
+      </div>
+      <div class="form-row">
+        <label for="sess">Monthly sessions target</label>
+        <input type="number" step="1" min="1" id="sess" name="monthly_sessions_target" value="{{ goal.monthly_sessions_target if goal else '' }}">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Save Targets</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

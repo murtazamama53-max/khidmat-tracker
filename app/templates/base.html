@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}Murtaza — Khidmat Earnings Tracker{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <video
+      class="app-background-video"
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="metadata"
+      poster="{{ url_for('static', filename='images/cinematic-bg.webp') }}"
+      aria-hidden="true"
+  >
+      <source src="{{ url_for('static', filename='videos/cinematic-bg.webm') }}" type="video/webm">
+      <source src="{{ url_for('static', filename='videos/cinematic-bg.mp4') }}" type="video/mp4">
+  </video>
+  <div class="app-background-overlay" aria-hidden="true"></div>
+
+  <button class="mobile-nav-toggle" onclick="toggleMobileNav()" aria-label="Toggle navigation">☰</button>
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeMobileNav()"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">M</div>
+        <div class="brand-text">
+          <div class="name">MURTAZA</div>
+          <div class="tagline">Khidmat Earnings Tracker</div>
+        </div>
+      </div>
+
+      <ul class="nav-list">
+        <li><a href="{{ url_for('dashboard.index') }}" class="{{ 'active' if request.endpoint == 'dashboard.index' }}">Dashboard</a></li>
+        <li><a href="{{ url_for('sessions.list_sessions') }}" class="{{ 'active' if request.endpoint == 'sessions.list_sessions' }}">Sessions</a></li>
+        <li><a href="{{ url_for('calendar.index') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('calendar.') }}">Calendar</a></li>
+        <li><a href="{{ url_for('rates.index') }}" class="{{ 'active' if request.endpoint in ('rates.index', 'rates.edit_rate') }}">Rates</a></li>
+        <li><a href="{{ url_for('students.list_students') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('students.') }}">Tuition</a></li>
+        <li><a href="{{ url_for('reports.index') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('reports.') }}">Reports</a></li>
+        <li><a href="{{ url_for('goals.index') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('goals.') }}">Goals</a></li>
+        <li><span class="nav-disabled">Notes<span class="badge-soon">Later</span></span></li>
+        <li><a href="{{ url_for('settings.index') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('settings.') }}">Settings</a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="sync-pill">
+          {% if sidebar_calendar_account %}
+            <span class="dot"></span> Google Calendar — Connected
+          {% else %}
+            <span class="dot off"></span> Google Calendar — Not connected
+          {% endif %}
+        </div>
+        {% if sidebar_has_pin %}
+        <form method="post" action="{{ url_for('settings.lock') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-block" style="margin-bottom:8px;">🔒 Lock</button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('auth.logout') }}" class="btn btn-block">Log out</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  {% block scripts %}{% endblock %}
+  <script>
+    function toggleMobileNav() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('sidebarBackdrop').classList.toggle('open');
+    }
+    function closeMobileNav() {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebarBackdrop').classList.remove('open');
+    }
+
+    // Reduced motion: don't just hide the video visually (CSS handles
+    // that) -- actually stop decoding/playback too, so it isn't silently
+    // burning CPU/battery in the background. The CSS fallback shows the
+    // static poster image in its place.
+    (function () {
+      var mql = window.matchMedia('(prefers-reduced-motion: reduce)');
+      var video = document.querySelector('.app-background-video');
+      function applyMotionPreference() {
+        if (!video) return;
+        if (mql.matches) {
+          video.pause();
+          video.removeAttribute('autoplay');
+        } else if (video.paused) {
+          video.play().catch(function () {});
+        }
+      }
+      applyMotionPreference();
+      if (mql.addEventListener) mql.addEventListener('change', applyMotionPreference);
+    })();
+  </script>
+</body>
+</html>

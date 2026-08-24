@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Reports — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Reports</h1>
+    <p>{{ range_label }} · {{ start.strftime('%d %b %Y') }} – {{ end.strftime('%d %b %Y') }}</p>
+  </div>
+  <div style="display:flex; gap:10px;">
+    <a href="{{ url_for('reports.export_csv', **request.args) }}" class="btn">Export CSV</a>
+    <a href="{{ url_for('reports.export_pdf', **request.args) }}" class="btn btn-primary">Export PDF</a>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:18px;">
+  <form method="get" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+    <div class="form-row" style="margin-bottom:0;">
+      <label for="range">Period</label>
+      <select id="range" name="range" onchange="this.form.submit()">
+        <option value="this_month" {{ 'selected' if range_key == 'this_month' }}>This Month</option>
+        <option value="last_month" {{ 'selected' if range_key == 'last_month' }}>Last Month</option>
+        <option value="this_year" {{ 'selected' if range_key == 'this_year' }}>This Year</option>
+        <option value="custom" {{ 'selected' if range_key == 'custom' }}>Custom Range</option>
+      </select>
+    </div>
+    {% if range_key == 'custom' %}
+    <div class="form-row" style="margin-bottom:0;">
+      <label for="start">Start</label>
+      <input type="date" id="start" name="start" value="{{ start.isoformat() }}">
+    </div>
+    <div class="form-row" style="margin-bottom:0;">
+      <label for="end">End</label>
+      <input type="date" id="end" name="end" value="{{ end.isoformat() }}">
+    </div>
+    {% endif %}
+    <div class="form-row" style="margin-bottom:0;">
+      <label for="source_id">Source</label>
+      <select id="source_id" name="source_id" onchange="this.form.submit()">
+        <option value="">All sources</option>
+        {% for src in sources %}
+        <option value="{{ src.id }}" {{ 'selected' if source_id == src.id }}>{{ src.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row" style="margin-bottom:0;">
+      <label for="student_id">Student</label>
+      <select id="student_id" name="student_id" onchange="this.form.submit()">
+        <option value="">All students</option>
+        {% for st in students %}
+        <option value="{{ st.id }}" {{ 'selected' if student_id == st.id }}>{{ st.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if range_key == 'custom' %}
+    <button type="submit" class="btn btn-primary">Apply</button>
+    {% endif %}
+  </form>
+</div>
+
+<div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
+  <div class="panel kpi-card kpi-emerald">
+    <div class="kpi-icon">Rs</div>
+    <div class="kpi-label">Total Earnings</div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.2f}".format(total_earnings) }}</div>
+    <div class="kpi-subtext">Khidmat {{ currency }} {{ "{:,.2f}".format(khidmat_earnings) }} &middot; Tuition {{ currency }} {{ "{:,.2f}".format(tuition_earnings) }}{% if adjustments_net != 0 %} &middot; Other {{ currency }} {{ "{:,.2f}".format(adjustments_net) }}{% endif %}</div>
+  </div>
+  <div class="panel kpi-card kpi-cyan">
+    <div class="kpi-icon">✓</div>
+    <div class="kpi-label">Paid</div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.2f}".format(total_paid) }}</div>
+  </div>
+  <div class="panel kpi-card kpi-gold">
+    <div class="kpi-icon">◷</div>
+    <div class="kpi-label">Pending <span class="kpi-label-note">(Tuition only)</span></div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.2f}".format(total_pending) }}</div>
+  </div>
+  <div class="panel kpi-card kpi-violet">
+    <div class="kpi-icon">⏱</div>
+    <div class="kpi-label">Hours <span class="kpi-label-note">(Khidmat only)</span></div>
+    <div class="kpi-value">{{ "%.2f"|format(total_hours) }}</div>
+  </div>
+  <div class="panel kpi-card kpi-emerald">
+    <div class="kpi-icon">▤</div>
+    <div class="kpi-label">Sessions <span class="kpi-label-note">(Khidmat only)</span></div>
+    <div class="kpi-value">{{ session_count }}</div>
+  </div>
+  <div class="panel kpi-card kpi-cyan">
+    <div class="kpi-icon">◈</div>
+    <div class="kpi-label">Effective Rate <span class="kpi-label-note">(Khidmat only)</span></div>
+    <div class="kpi-value">{% if effective_rate %}{{ currency }} {{ "{:,.0f}".format(effective_rate) }}{% else %}—{% endif %}</div>
+  </div>
+</div>
+
+{% if by_source %}
+<div class="panel" style="margin-bottom:18px;">
+  <div class="panel-title">Source Contribution</div>
+  <table class="data-table">
+    {% for label, amount in by_source.items() %}
+    <tr><td>{{ label }}</td><td class="amount-positive">{{ currency }} {{ "{:,.2f}".format(amount) }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<div class="panel" style="margin-bottom:18px;">
+  <div class="panel-title">Sessions ({{ sessions|length }})</div>
+  {% if sessions %}
+  <table class="data-table">
+    <thead><tr><th>Date</th><th>Source</th><th>Duration</th><th>Rate</th><th>Amount</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td>{{ s.date.strftime('%d %b %Y') }}</td>
+        <td><span class="source-chip">{{ s.source.name }}</span></td>
+        <td>{{ (s.duration_minutes // 60) }}h {{ '%02d'|format(s.duration_minutes % 60) }}m</td>
+        <td>{{ currency }} {{ s.applied_rate }}/h</td>
+        <td class="amount-positive">{{ currency }} {{ "{:,.2f}".format(s.calculated_amount) }}</td>
+        <td>{{ s.status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><div class="emoji">◈</div><div>No sessions in this period.</div></div>
+  {% endif %}
+</div>
+
+{% if invoices %}
+<div class="panel">
+  <div class="panel-title">Tuition Invoices ({{ invoices|length }})</div>
+  <table class="data-table">
+    <thead><tr><th>Period</th><th>Student</th><th>Amount</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for inv in invoices %}
+      <tr>
+        <td>{{ inv.period_start.strftime('%d %b') }} – {{ inv.period_end.strftime('%d %b %Y') }}</td>
+        <td>{{ inv.student.name }}</td>
+        <td class="amount-positive">{{ currency }} {{ "{:,.2f}".format(inv.amount) }}</td>
+        <td>{{ inv.status.title() }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

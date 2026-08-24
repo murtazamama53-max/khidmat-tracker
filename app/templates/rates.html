@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Rates — Murtaza{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Rates</h1>
+    <p>Manage your income sources and their historical hourly rates</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">Income Sources & Rate History</div>
+    <div class="panel-subtitle">Old sessions always keep the rate that was active on their date</div>
+
+    {% if sources %}
+      {% for source in sources %}
+      <div style="margin-bottom:22px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong>{{ source.name }}</strong>
+          <span class="source-chip">{{ source.mode.replace('_', ' ').title() }}</span>
+        </div>
+        {% set rates = rates_by_source.get(source.id, []) %}
+        {% if rates %}
+          {% for r in rates %}
+          <div class="rate-timeline-item">
+            <span>{{ r.effective_from.strftime('%d %b %Y') }} → {{ r.effective_to.strftime('%d %b %Y') if r.effective_to else 'present' }}</span>
+            <span style="display:flex; align-items:center; gap:12px;">
+              <span class="amount-positive">{{ currency }} {{ r.rate }}/h</span>
+              <a href="{{ url_for('rates.edit_rate', rate_id=r.id) }}" style="color:var(--accent-cyan); font-size:12px;">Edit</a>
+            </span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <p style="color:var(--accent-gold); font-size:12.5px;">No rate defined yet — sessions for this source can't be saved until you add one.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        <div class="emoji">◈</div>
+        <div>No income sources yet. Add one on the right to get started.</div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="panel-title">Add Source</div>
+      <form method="post" action="{{ url_for('rates.add_source') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row">
+          <label for="src-name">Name</label>
+          <input type="text" id="src-name" name="name" placeholder="e.g. SBHS" required>
+        </div>
+        <div class="form-row">
+          <label for="src-mode">Mode</label>
+          <select id="src-mode" name="mode" required>
+            <option value="FIXED_HOURS">Fixed hours — e.g. Sbhs(7)</option>
+            <option value="EXACT_TIME">Exact time — e.g. sghs(5-6:20)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="src-category">Category</label>
+          <input type="text" id="src-category" name="category" value="khidmat">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Add Source</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Add Rate Period</div>
+      <form method="post" action="{{ url_for('rates.add_rate') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row">
+          <label for="rate-source">Source</label>
+          <select id="rate-source" name="source_id" required>
+            {% for source in sources %}
+              <option value="{{ source.id }}">{{ source.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="rate-value">Rate ({{ currency }} / hour)</label>
+          <input type="number" step="0.01" min="0.01" id="rate-value" name="rate" required>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-row">
+            <label for="rate-from">Effective from</label>
+            <input type="date" id="rate-from" name="effective_from" required>
+          </div>
+          <div class="form-row">
+            <label for="rate-to">Effective to (optional)</label>
+            <input type="date" id="rate-to" name="effective_to">
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="rate-notes">Notes (optional)</label>
+          <input type="text" id="rate-notes" name="notes">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not sources }}>Add Rate</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

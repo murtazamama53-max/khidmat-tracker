@@ -1,0 +1,24 @@
+<div class="modal-backdrop" id="quickAddBackdrop">
+  <div class="panel modal">
+    <div class="panel-title">Add Session</div>
+    <p class="panel-subtitle">Type your session — the system parses it and shows you the exact calculation before saving anything.</p>
+
+    <div class="form-row">
+      <label for="qa-date">Date</label>
+      <input type="date" id="qa-date" value="{{ today.isoformat() }}">
+    </div>
+    <div class="form-row">
+      <label for="qa-text">Session</label>
+      <input type="text" id="qa-text" placeholder="Sbhs(7) & sghs(5-6:20)" autocomplete="off">
+    </div>
+
+    <div id="qa-preview"></div>
+
+    <div id="qa-error" class="flash flash-error" style="display:none;"></div>
+
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button class="btn" style="flex:1;" onclick="closeQuickAdd()">Cancel</button>
+      <button class="btn btn-primary" style="flex:2;" id="qa-confirm-btn" onclick="confirmQuickAdd()" disabled>Confirm &amp; Save</button>
+    </div>
+  </div>
+</div>

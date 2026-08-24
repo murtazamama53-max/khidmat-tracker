@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Murtaza{% endblock %}
+{% block body_class %}page-bright{% endblock %}
+
+{% block content %}
+{% macro trend(pct) %}
+  {% if pct is not none %}
+    {% if pct > 0.05 %}
+    <div class="kpi-trend kpi-trend-up">▲ {{ "%.1f"|format(pct) }}% vs {{ trend_label }}</div>
+    {% elif pct < -0.05 %}
+    <div class="kpi-trend kpi-trend-down">▼ {{ "%.1f"|format(pct|abs) }}% vs {{ trend_label }}</div>
+    {% else %}
+    <div class="kpi-trend kpi-trend-flat">flat vs {{ trend_label }}</div>
+    {% endif %}
+  {% endif %}
+{% endmacro %}
+<div class="topbar">
+  <div class="greeting">
+    <h1>Hello, {{ user.name }} </h1>
+    <p>{{ today.strftime('%A, %d %b %Y') }} · {{ range_label }}</p>
+  </div>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <form method="get" id="range-form">
+      <select name="range" onchange="document.getElementById('range-form').submit()" style="padding:9px 14px; border-radius:999px; border:1px solid var(--border-glass-strong); background:rgba(255,255,255,0.03); color:var(--text-primary); font-size:13px;">
+        <option value="this_month" {{ 'selected' if range_key == 'this_month' }}>This Month</option>
+        <option value="last_month" {{ 'selected' if range_key == 'last_month' }}>Last Month</option>
+        <option value="this_year" {{ 'selected' if range_key == 'this_year' }}>This Year</option>
+      </select>
+    </form>
+    <button class="btn btn-primary" onclick="openQuickAdd()">+ Add Session</button>
+  </div>
+</div>
+
+{% if not has_sources %}
+  <div class="panel" style="margin-bottom:18px;">
+    <div class="panel-title">Let's set up your first income source</div>
+    <p class="panel-subtitle" style="margin-bottom:14px;">Before you can log sessions, add at least one source (e.g. SBHS, SGHS) and a starting rate.</p>
+    <a href="{{ url_for('rates.index') }}" class="btn btn-primary">Go to Rates</a>
+  </div>
+{% endif %}
+
+<div class="kpi-grid">
+  <div class="panel kpi-card kpi-emerald">
+    <div class="kpi-icon">Σ</div>
+    <div class="kpi-label">Total Income</div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.0f}".format(total_earnings) }}</div>
+    <div class="kpi-subtext">Khidmat + Tuition{% if adjustments_net != 0 %} + Other{% endif %}, combined</div>
+    {{ trend(trends.total) }}
+  </div>
+  <div class="panel kpi-card kpi-khidmat">
+    <div class="kpi-icon">⏱</div>
+    <div class="kpi-label">Khidmat</div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.0f}".format(khidmat_earnings) }}</div>
+    <div class="kpi-subtext">Time-based earnings</div>
+    {{ trend(trends.khidmat) }}
+  </div>
+  <div class="panel kpi-card kpi-tuition">
+    <div class="kpi-icon">◈</div>
+    <div class="kpi-label">Tuition</div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.0f}".format(tuition_earnings) }}</div>
+    <div class="kpi-subtext">Fixed-fee earnings</div>
+    {{ trend(trends.tuition) }}
+  </div>
+  <div class="panel kpi-card kpi-gold">
+    <div class="kpi-icon">◷</div>
+    <div class="kpi-label">Pending</div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.0f}".format(pending_total) }}</div>
+    <div class="kpi-subtext">Tuition awaiting payment</div>
+    {{ trend(trends.pending) }}
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="panel kpi-card kpi-khidmat">
+    <div class="kpi-icon">⏱</div>
+    <div class="kpi-label">Khidmat Hours</div>
+    <div class="kpi-value">{{ "%.1f"|format(total_hours) }} hrs</div>
+    {{ trend(trends.hours) }}
+  </div>
+  <div class="panel kpi-card kpi-khidmat">
+    <div class="kpi-icon">◈</div>
+    <div class="kpi-label">Khidmat Effective Rate</div>
+    <div class="kpi-value">{% if effective_rate %}{{ currency }} {{ "{:,.0f}".format(effective_rate) }}/hr{% else %}—{% endif %}</div>
+    {{ trend(trends.rate) }}
+  </div>
+  <div class="panel kpi-card kpi-khidmat">
+    <div class="kpi-icon">▤</div>
+    <div class="kpi-label">Khidmat Sessions</div>
+    <div class="kpi-value">{{ session_count }}</div>
+    {{ trend(trends.sessions) }}
+  </div>
+  <div class="panel kpi-card kpi-cyan">
+    <div class="kpi-icon">+</div>
+    <div class="kpi-label">Other Income</div>
+    <div class="kpi-value">{{ currency }} {{ "{:,.0f}".format(adjustments_net) }}</div>
+    {{ trend(trends.other) }}
+  </div>
+</div>
+
+<div class="grid-2" style="margin-bottom:18px;">
+  <div class="panel source-panel source-panel-khidmat">
+    <div class="source-panel-header">
+      <div class="panel-title">Khidmat</div>
+      <span class="source-tag source-tag-khidmat">Time-based</span>
+    </div>
+    <div class="panel-subtitle">Hourly work, paid by the applicable historical rate</div>
+    {% if session_count > 0 %}
+    <div class="source-stat-row">
+      <div class="source-stat"><span class="source-stat-value">{{ currency }} {{ "{:,.2f}".format(khidmat_earnings) }}</span><span class="source-stat-label">Earned</span></div>
+      <div class="source-stat"><span class="source-stat-value">{{ "%.2f"|format(total_hours) }}</span><span class="source-stat-label">Hours</span></div>
+      <div class="source-stat"><span class="source-stat-value">{{ session_count }}</span><span class="source-stat-label">Sessions</span></div>
+    </div>
+    {% elif not has_sources %}
+    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">Set up your first Khidmat rate to get started.</p>
+    {% else %}
+    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">Your Khidmat activity will appear here once you log a session.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel source-panel source-panel-tuition">
+    <div class="source-panel-header">
+      <div class="panel-title">Tuition</div>
+      <span class="source-tag source-tag-tuition">Fixed fee</span>
+    </div>
+    <div class="panel-subtitle">Private students, billed per period regardless of hours</div>
+    {% if tuition_student_count > 0 %}
+    <div class="source-stat-row">
+      <div class="source-stat"><span class="source-stat-value">{{ currency }} {{ "{:,.2f}".format(tuition_earnings) }}</span><span class="source-stat-label">Billed</span></div>
+      <div class="source-stat"><span class="source-stat-value">{{ tuition_student_count }}</span><span class="source-stat-label">Student(s)</span></div>
+      <div class="source-stat"><span class="source-stat-value">{{ tuition_paid_count }} / {{ tuition_pending_count }}</span><span class="source-stat-label">Paid / Pending</span></div>
+    </div>
+    {% else %}
+    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">No tuition records yet for this period.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel assistant-panel" style="margin-bottom:18px;">
+  <div class="panel-title">Ask about your earnings</div>
+  <div class="panel-subtitle">Local, deterministic answers from your own recorded data — nothing is sent anywhere.</div>
+
+  <div class="assistant-log" id="assistant-log">
+    <div class="assistant-bubble assistant-bubble-bot">
+      Ask me things like "how much did I earn this month" or "why is this month lower than last month."
+    </div>
+  </div>
+
+  <div class="assistant-suggestions" id="assistant-suggestions"></div>
+
+  <div class="assistant-input-row">
+    <input type="text" id="assistant-input" placeholder="How much did I earn this month?" autocomplete="off">
+    <button class="btn btn-primary" id="assistant-send-btn" onclick="sendAssistantMessage()">Ask</button>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">Khidmat Earnings &amp; Hours Trend</div>
+    <div class="panel-subtitle">{{ today.year }}, time-based Khidmat activity only, through {{ today.strftime('%d %b') }}</div>
+    <canvas id="trendChart" height="90"></canvas>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Calendar</div>
+    <div class="panel-subtitle">{{ cal_month_name }} {{ cal_year }}</div>
+    <div class="cal-grid">
+      {% for wd in ['S','M','T','W','T','F','S'] %}<div class="cal-wd">{{ wd }}</div>{% endfor %}
+      {% for _ in range(cal_first_weekday) %}<div></div>{% endfor %}
+      {% for day in range(1, cal_days_in_month + 1) %}
+        {% set count = cal_day_counts.get(day, 0) %}
+        <a href="{{ url_for('sessions.list_sessions', date=('%04d-%02d-%02d'|format(cal_year, cal_month, day))) }}"
+           class="cal-day {{ 'has-sessions' if count > 0 }} {{ 'is-today' if day == cal_today_day }}"
+           title="{{ count }} session(s)">{{ day }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="panel">
+    <div class="panel-title">Recent Sessions</div>
+    <div class="panel-subtitle">Your latest recorded earnings</div>
+
+    {% if recent_sessions %}
+    <table class="data-table">
+      <thead>
+        <tr><th>Date</th><th>Source</th><th>Time / Qty</th><th>Duration</th><th>Rate</th><th>Earning</th></tr>
+      </thead>
+      <tbody>
+        {% for s in recent_sessions %}
+        <tr onclick="window.location='{{ url_for('sessions.view', session_id=s.id) }}'" style="cursor:pointer;">
+          <td>{{ s.date.strftime('%d %b') }}</td>
+          <td><span class="source-chip">{{ s.source.name }}</span></td>
+          <td>
+            {% if s.mode == 'EXACT_TIME' %}{{ s.start_time.strftime('%I:%M %p') }}–{{ s.end_time.strftime('%I:%M %p') }}
+            {% else %}{{ s.decimal_hours }}h fixed{% endif %}
+          </td>
+          <td>{{ (s.duration_minutes // 60) }}h {{ '%02d'|format(s.duration_minutes % 60) }}m</td>
+          <td>{{ currency }} {{ s.applied_rate }}/h</td>
+          <td class="amount-positive">{{ currency }} {{ "{:,.2f}".format(s.calculated_amount) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="emoji">◈</div>
+      <div>No sessions recorded yet. Use <strong>+ Add Session</strong> to log your first one.</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="panel-title">Earnings Breakdown</div>
+      <div class="panel-subtitle">{{ range_label }}</div>
+      {% if source_breakdown %}
+      <canvas id="sourceChart" height="180"></canvas>
+      <table class="data-table" style="margin-top:14px;">
+        {% for row in breakdown %}
+        {% if row.amount != 0 %}
+        <tr>
+          <td style="width:60%;">{{ row.label }}</td>
+          <td class="{{ 'amount-positive' if row.amount >= 0 else '' }}" style="{{ 'color:var(--accent-danger);' if row.amount < 0 }}">
+            {{ currency }} {{ "{:,.2f}".format(row.amount) }}
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </table>
+      {% else %}
+      <div class="empty-state" style="padding:24px;"><div class="emoji">◈</div><div>No earnings in this period yet.</div></div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Goals &amp; Progress</div>
+      <div class="panel-subtitle">This month</div>
+      {% if goal %}
+        <div style="margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px;">
+            <span>Income</span>
+            <span>{{ goal_progress.income_pct|round(0, 'floor')|int if goal_progress.income_pct is not none else '—' }}%</span>
+          </div>
+          {% if goal_progress.income_pct is not none %}
+          <div style="height:6px; border-radius:99px; background:rgba(255,255,255,0.06);"><div style="height:100%; width:{{ goal_progress.income_pct }}%; background:var(--accent-emerald); border-radius:99px;"></div></div>
+          {% endif %}
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px;">
+            <span>Hours</span>
+            <span>{{ goal_progress.hours_pct|round(0, 'floor')|int if goal_progress.hours_pct is not none else '—' }}%</span>
+          </div>
+          {% if goal_progress.hours_pct is not none %}
+          <div style="height:6px; border-radius:99px; background:rgba(255,255,255,0.06);"><div style="height:100%; width:{{ goal_progress.hours_pct }}%; background:var(--accent-cyan); border-radius:99px;"></div></div>
+          {% endif %}
+        </div>
+        <div>
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px;">
+            <span>Sessions</span>
+            <span>{{ goal_progress.sessions_pct|round(0, 'floor')|int if goal_progress.sessions_pct is not none else '—' }}%</span>
+          </div>
+          {% if goal_progress.sessions_pct is not none %}
+          <div style="height:6px; border-radius:99px; background:rgba(255,255,255,0.06);"><div style="height:100%; width:{{ goal_progress.sessions_pct }}%; background:var(--accent-gold); border-radius:99px;"></div></div>
+          {% endif %}
+        </div>
+        <a href="{{ url_for('goals.index') }}" style="display:block; text-align:center; margin-top:16px; font-size:12.5px; color:var(--accent-cyan);">Edit targets</a>
+      {% else %}
+        <p style="color:var(--text-muted); font-size:13px; margin-bottom:14px;">No targets set yet.</p>
+        <a href="{{ url_for('goals.index') }}" class="btn btn-primary btn-block">Set Goals</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="panel stat-strip">
+  <div class="stat-chip">
+    <span class="stat-chip-icon">◔</span>
+    <div><span class="stat-chip-value">{{ active_student_count }}</span><span class="stat-chip-label">Active Students</span></div>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-chip-icon" style="color:var(--accent-emerald);">✓</span>
+    <div><span class="stat-chip-value" style="color:var(--accent-emerald);">{{ currency }} {{ "{:,.0f}".format(paid_total) }}</span><span class="stat-chip-label">Paid This Period</span></div>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-chip-icon" style="color:var(--accent-gold);">◷</span>
+    <div><span class="stat-chip-value" style="color:var(--accent-gold);">{{ currency }} {{ "{:,.0f}".format(pending_total) }}</span><span class="stat-chip-label">Pending This Period</span></div>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-chip-icon">Σ</span>
+    <div><span class="stat-chip-value">{{ currency }} {{ "{:,.0f}".format(expected_total) }}</span><span class="stat-chip-label">Expected This Period</span></div>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-chip-icon" style="color:var(--accent-emerald);">◈</span>
+    <div><span class="stat-chip-value" style="color:var(--accent-emerald);">{% if completion_rate is not none %}{{ "%.0f"|format(completion_rate) }}%{% else %}—{% endif %}</span><span class="stat-chip-label">Completion Rate</span></div>
+  </div>
+</div>
+
+{% include "_quick_add_modal.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/quick_add.js') }}"></script>
+<script src="{{ url_for('static', filename='js/assistant.js') }}"></script>
+<script>
+  const trendCtx = document.getElementById('trendChart');
+  if (trendCtx) {
+    new Chart(trendCtx, {
+      type: 'line',
+      data: {
+        labels: {{ chart_labels|tojson }},
+        datasets: [
+          {
+            label: 'Khidmat Earnings ({{ currency }})',
+            data: {{ chart_earnings|tojson }},
+            borderColor: '#2fd98f',
+            backgroundColor: 'rgba(47,217,143,0.12)',
+            tension: 0.35,
+            fill: true,
+            yAxisID: 'y',
+          },
+          {
+            label: 'Khidmat Hours',
+            data: {{ chart_hours|tojson }},
+            borderColor: '#5fb8ae',
+            backgroundColor: 'rgba(95,184,174,0.08)',
+            tension: 0.35,
+            fill: true,
+            yAxisID: 'y1',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#9aa5c4', font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: '#6a7495' }, grid: { color: 'rgba(148,172,224,0.06)' } },
+          y: { position: 'left', ticks: { color: '#6a7495' }, grid: { color: 'rgba(148,172,224,0.06)' } },
+          y1: { position: 'right', ticks: { color: '#6a7495' }, grid: { display: false } },
+        }
+      }
+    });
+    trendCtx.parentElement.style.position = 'relative';
+    trendCtx.parentElement.style.height = '260px';
+  }
+
+  const sourceCtx = document.getElementById('sourceChart');
+  if (sourceCtx) {
+    const labels = {{ source_breakdown|map(attribute='label')|list|tojson }};
+    const values = {{ source_breakdown|map(attribute='amount')|list|tojson }};
+    new Chart(sourceCtx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{ data: values, backgroundColor: ['#2fd98f', '#a78bfa', '#e8b44f', '#5fb8ae'], borderColor: '#06080a', borderWidth: 2 }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#9aa5c4', font: { size: 11 } } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.label}: {{ currency }} ${ctx.parsed.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+            }
+          }
+        }
+      }
+    });
+  }
+</script>
+{% endblock %}
