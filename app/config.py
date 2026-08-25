@@ -28,6 +28,10 @@ _ON_SERVERLESS = bool(os.environ.get("VERCEL"))
 class Config:
     ENV = os.environ.get("FLASK_ENV", "development")
     IS_PRODUCTION = ENV == "production"
+    # Exposed on the config object (not just the module-private flag above)
+    # so app/__init__.py can check app.config["ON_SERVERLESS"] without
+    # importing a private name across modules.
+    ON_SERVERLESS = _ON_SERVERLESS
 
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-key-change-me-in-.env")
 

@@ -29,7 +29,13 @@ def create_app(config_class=Config):
     # SESSION_COOKIE_SECURE and producing http:// OAuth redirect URIs.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-    os.makedirs(app.instance_path, exist_ok=True)
+    # instance_path (Flask's instance-relative-config folder) is only ever
+    # needed for local SQLite dev/tests and local backups -- both already
+    # redirect to /tmp when ON_SERVERLESS (see config.py). Vercel's deployed
+    # filesystem is read-only outside /tmp, so creating this directory
+    # there would crash create_app() on every cold start.
+    if not app.config.get("ON_SERVERLESS"):
+        os.makedirs(app.instance_path, exist_ok=True)
 
     db.init_app(app)
     migrate.init_app(app, db)
