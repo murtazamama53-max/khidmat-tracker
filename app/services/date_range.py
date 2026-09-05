@@ -2,8 +2,9 @@
 Resolves the "This month / Last month / This year / Custom range" selector
 (blueprint section 21) into a concrete (start_date, end_date) pair.
 """
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
 
 
 class InvalidRangeError(ValueError):
@@ -11,6 +12,22 @@ class InvalidRangeError(ValueError):
 
 
 VALID_KEYS = ("this_month", "last_month", "this_year", "custom")
+
+
+def app_today(tz_name: str) -> date:
+    """
+    "Today", in the app's configured operating timezone (config.TIMEZONE,
+    "Asia/Karachi" by default) -- never the bare server-local date.
+
+    date.today() uses the server's own local timezone, which is UTC on
+    Vercel regardless of where the owner actually is. Pakistan is UTC+5,
+    so any naive date.today() call is wrong for roughly the first 5 hours
+    of every Pakistan day (it still reports "yesterday"), which is exactly
+    what showed up as a stale date on the dashboard. Every route that
+    needs "today" must go through this function instead of calling
+    date.today() directly.
+    """
+    return datetime.now(ZoneInfo(tz_name)).date()
 
 
 def resolve_range(

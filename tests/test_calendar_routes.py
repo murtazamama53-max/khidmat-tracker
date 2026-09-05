@@ -137,7 +137,7 @@ def test_disconnect_removes_account_but_keeps_sessions(client, monkeypatch):
     monkeypatch.setattr(
         calendar_routes.google_calendar_client,
         "fetch_events",
-        lambda *a, **k: [_fake_event("e1", "SBHS", "2026-08-14T16:50:00+00:00", "2026-08-14T18:30:00+00:00")],
+        lambda *a, **k: ([_fake_event("e1", "SBHS", "2026-08-14T16:50:00+00:00", "2026-08-14T18:30:00+00:00")], None),
     )
     client.post("/calendar/mappings/add", data={"title_pattern": "SBHS", "source_id": "1"})
     client.post("/calendar/sync")
@@ -160,7 +160,7 @@ def test_disconnect_removes_account_but_keeps_sessions(client, monkeypatch):
 def _mock_fetch(monkeypatch, events):
     from app.routes import calendar as calendar_routes
 
-    monkeypatch.setattr(calendar_routes.google_calendar_client, "fetch_events", lambda *a, **k: list(events))
+    monkeypatch.setattr(calendar_routes.google_calendar_client, "fetch_events", lambda *a, **k: (list(events), None))
 
 
 def test_first_sync_imports_and_calculates_correctly(client, monkeypatch):

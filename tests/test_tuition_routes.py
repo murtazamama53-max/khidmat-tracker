@@ -4,7 +4,17 @@ from decimal import Decimal
 import pytest
 
 from app import create_app
-from app.config import TestConfig
+from app.config import Config, TestConfig
+from app.services.date_range import app_today
+
+
+def _today():
+    # Match the app's own timezone-aware "today" (Asia/Karachi), not the
+    # server's local/UTC date -- otherwise a test that seeds data via an
+    # HTTP POST (which resolves "today" via app_today()) and asserts
+    # against a dashboard/report range computed the same way can flake
+    # right at a month boundary, whenever UTC and Karachi disagree.
+    return app_today(Config.TIMEZONE)
 
 
 @pytest.fixture
@@ -320,7 +330,7 @@ def test_combined_monthly_totals_khidmat_tuition_and_adjustments(client):
         sbhs_id = IncomeSource.query.filter_by(name="Sbhs").first().id
         sghs_id = IncomeSource.query.filter_by(name="sghs").first().id
 
-    today_iso = date.today().isoformat()
+    today_iso = _today().isoformat()
     client.post("/rates/add", data={"source_id": sbhs_id, "rate": "250", "effective_from": "2026-01-01"})
     client.post("/rates/add", data={"source_id": sghs_id, "rate": "250", "effective_from": "2026-01-01"})
 
@@ -328,8 +338,8 @@ def test_combined_monthly_totals_khidmat_tuition_and_adjustments(client):
     preview = r.get_json()
     client.post("/sessions/confirm", json={"date": preview["date"], "raw_text": "Sbhs(7) & sghs(5-6:20)", "items": preview["items"]})
 
-    period_start = date.today().replace(day=1).isoformat()
-    period_end = date.today().isoformat()
+    period_start = _today().replace(day=1).isoformat()
+    period_end = _today().isoformat()
     client.post(f"/students/{ahmed_id}/invoices/add", data={"period_start": period_start, "period_end": period_end})
 
     client.post("/adjustments/add", data={"type": "bonus", "amount": "2750", "reason": "Other activities"})

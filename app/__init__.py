@@ -4,6 +4,7 @@ import sys
 from flask import Flask, redirect, session, url_for
 from flask_migrate import Migrate
 from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import Config
@@ -80,8 +81,10 @@ def create_app(config_class=Config):
 
         from app.models import User
 
-        # Allow static assets and the setup/guest flows through untouched.
-        if request.endpoint in (None, "static", "auth.setup", "guest.workspace", "guest.calculate"):
+        # Allow static assets, the setup/guest flows, and Google's webhook
+        # (which has no session and is authenticated by its own channel-token
+        # check, not by an owner existing) through untouched.
+        if request.endpoint in (None, "static", "auth.setup", "guest.workspace", "guest.calculate", "calendar.webhook"):
             return None
         if User.query.first() is None and request.endpoint != "auth.setup":
             return redirect(url_for("auth.setup"))
@@ -113,13 +116,47 @@ def create_app(config_class=Config):
         last_activity_raw = session.get("last_activity")
         if last_activity_raw:
             last_activity = datetime.fromisoformat(last_activity_raw)
-            idle_minutes = (now - last_activity).total_seconds() / 60
-            if idle_minutes > app.config["PIN_AUTO_LOCK_MINUTES"]:
+            idle_seconds = (now - last_activity).total_seconds()
+            if idle_seconds / 60 > app.config["PIN_AUTO_LOCK_MINUTES"]:
                 session["locked"] = True
                 return redirect(url_for("settings.unlock"))
-
-        session["last_activity"] = now.isoformat()
+            # Only touch (and reissue) the session cookie roughly once a
+            # minute, not on every single request. Writing to `session` on
+            # every request forces a fresh Set-Cookie on every response --
+            # harmless in isolation, but needless churn that's worth
+            # avoiding, especially with several requests firing close
+            # together (e.g. the dashboard's own AJAX calls).
+            if idle_seconds >= 60:
+                session["last_activity"] = now.isoformat()
+        else:
+            session["last_activity"] = now.isoformat()
         return None
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        from flask import flash, jsonify, redirect, request, url_for
+
+        message = "That took a bit too long to submit, so it needed a refresh. Please try again."
+
+        # AJAX endpoints (quick-add, assistant) send/expect JSON and already
+        # know how to display a JSON {"error": ...} response -- redirecting
+        # them would hand their fetch() call an HTML page instead.
+        if request.is_json:
+            return jsonify({"error": message}), 400
+
+        # A CSRF mismatch on a regular form is usually just a stale page
+        # (session expired, tab left open past the token's time limit, or
+        # -- as audited here -- any of a few other reasons a form's
+        # embedded token no longer matches the current session) rather
+        # than an actual attack. Flask-WTF's default response is a raw 400
+        # page with no way forward; redirecting back with a fresh token
+        # lets the person simply try again instead of hitting a dead end.
+        flash(message, "error")
+        if request.referrer and request.referrer.startswith(request.host_url):
+            return redirect(request.referrer)
+        if session.get("user_id") and not session.get("is_guest"):
+            return redirect(url_for("dashboard.index"))
+        return redirect(url_for("auth.login"))
 
     with app.app_context():
         # Zero-config convenience for local dev, tests, and simple SQLite

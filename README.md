@@ -161,16 +161,22 @@ run.py
 
 ## Environment variables
 
-See `.env.example`. `SECRET_KEY` is the only one required to start the
-app at all. Everything else has a sane local default:
+See `.env.example` for the full annotated list. `SECRET_KEY` is the only
+one required to start the app at all, and every optional one below has a
+safe fallback if left blank or invalid — none of them will crash startup.
 
-| Variable | Local default | Production |
-|---|---|---|
-| `SECRET_KEY` | dev placeholder (app still runs) | **required** — app refuses to start if left as the placeholder while `FLASK_ENV=production` |
-| `FLASK_ENV` | `development` | set to `production` |
-| `DATABASE_URL` | local SQLite file | PostgreSQL connection string (see **Deployment** below) |
-| `SESSION_COOKIE_SECURE` | `false` | `true` (requires HTTPS, which Vercel provides) |
-| `GOOGLE_CLIENT_ID` / `SECRET` / `REDIRECT_URI` | blank (Calendar sync disabled) | set once you enable Calendar sync — see below |
+| Variable | Required? | Purpose | Local default | Production |
+|---|---|---|---|---|
+| `SECRET_KEY` | **Yes** | Signs sessions + CSRF tokens | dev placeholder (app still runs) | app refuses to start if left as the placeholder while `FLASK_ENV=production` |
+| `FLASK_ENV` | No | `development` or `production` | `development` | set to `production` |
+| `DATABASE_URL` | No* | DB connection string. *Required in practice for any real deployment | local SQLite file | `postgresql://user:pass@host/db` (Neon, Vercel Postgres, etc.) |
+| `SESSION_COOKIE_SECURE` | No | Marks cookies HTTPS-only | `false` (auto, if unset) | `true` (auto, if unset — matches `FLASK_ENV`) |
+| `PIN_AUTO_LOCK_MINUTES` | No | Idle minutes before PIN re-lock | `10` | `10` — blank/invalid values safely fall back to this, they never crash |
+| `BACKUP_DIR` | No | Where local SQLite backups are written | `instance/backups` | `/tmp/backups` (ephemeral — see **Backups**) |
+| `GOOGLE_CLIENT_ID` | No | Calendar OAuth | blank (Calendar sync disabled) | set once you enable Calendar sync — see below |
+| `GOOGLE_CLIENT_SECRET` | No | Calendar OAuth | blank | same as above — **never** commit this to git or `.env.example` |
+| `GOOGLE_REDIRECT_URI` | No | Calendar OAuth callback URL | `http://127.0.0.1:5000/calendar/oauth/callback` | `https://your-app.vercel.app/calendar/oauth/callback` |
+| `VERCEL` | No | Not set by you — Vercel sets this automatically | unset | `1` (set by Vercel itself) |
 
 ## Deployment (GitHub + Vercel)
 
@@ -365,6 +371,41 @@ next 30 days.
 Google password, and access tokens are requested fresh for each sync
 and held only in memory, never persisted or sent to the browser.
 
+### Sync architecture: what's implemented, what isn't
+
+**Implemented and tested:** OAuth connect/disconnect, manual "Sync Now",
+title-pattern mapping rules with a "needs review" draft queue for
+unmapped events, duplicate prevention via stored Google event/occurrence
+IDs, edit reconciliation (a changed event recomputes the linked
+session's duration/rate/earning), delete reconciliation (a deleted event
+marks the session `source_deleted` rather than silently erasing
+financial history), and recurring events (fetched via `singleEvents=True`,
+so Google expands each occurrence into its own trackable event before it
+ever reaches the dedup logic — an edited or deleted single occurrence of
+a recurring series is handled exactly like any other event).
+
+**Incremental sync (`syncToken`):** after the first full sync, every
+subsequent "Sync Now" (or webhook-triggered sync) requests only what
+changed since the last one, instead of re-fetching the whole 90-day
+window. If Google reports the stored token expired (HTTP 410 — can
+happen if it's very old, or the calendar's sharing settings changed),
+the app automatically falls back to a full resync and gets a fresh
+token — this is Google's own documented recovery path, not an error
+state.
+
+**Push notifications (`watch()`/webhook):** optional, off by default —
+enable it from the Calendar page ("Enable Push Sync"). Once on, editing
+an event on your phone syncs within seconds instead of waiting for the
+next manual sync, via a channel registered with Google that calls
+`/calendar/webhook` on change. That endpoint verifies a channel token
+Google echoes back on every call (not your login session — Google has
+no session cookie for this app) before triggering anything. Channels
+expire roughly weekly; renewal happens automatically as a side effect of
+whatever sync runs next (manual or webhook-triggered), so there's no
+separate cron job to maintain. Requires a public HTTPS URL, so it only
+works once deployed — a local dev server will refuse to enable it with a
+clear message rather than silently failing later.
+
 
 
 | Phase | Scope | Status |
@@ -376,6 +417,7 @@ and held only in memory, never persisted or sent to the browser.
 | V4 Hardening | CSRF, PIN lock, encrypted backups, security-reviewed auth boundary | **Done** |
 | V3 AI | Natural-language Q&A over your own data | **Done** |
 | Phase 7 QA/Deployment | Full audit, cleanup, DB migrations, PostgreSQL + Vercel readiness | **Done** |
+| Phase 8 Production hardening | Fixed 3 live Vercel crashes, CSRF/session multi-device audit, graceful CSRF recovery | **Done** |
 
 ## Assistant (Phase 6 / V3 AI)
 
@@ -474,7 +516,11 @@ owner's PIN, and the PIN is completely optional.
   spot check.
 - **CSRF:** every state-changing form and AJAX request carries a
   per-session token (Flask-WTF); a POST without a valid token is
-  rejected with 400 before it reaches any view logic.
+  rejected before it reaches any view logic. A mismatch (typically a
+  page left open long enough for its token to go stale, or a session
+  that expired) redirects back with a friendly message and a fresh
+  token — for AJAX endpoints, a JSON error instead — rather than
+  dead-ending on Flask-WTF's raw error page.
 - **XSS:** Jinja2's autoescaping is on everywhere (no `|safe` filters
   anywhere in the codebase); verified with a test that stores a
   `<script>` payload in an adjustment reason and a student name and

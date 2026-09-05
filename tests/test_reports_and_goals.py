@@ -1,10 +1,20 @@
-from datetime import date
 from decimal import Decimal
 
 import pytest
 
 from app import create_app
-from app.config import TestConfig
+from app.config import Config, TestConfig
+from app.services.date_range import app_today
+
+
+def _today():
+    # Tests must compute "today" the same way the app's own routes do
+    # (Asia/Karachi, not the server's local/UTC time) -- otherwise a test
+    # that seeds data via an HTTP POST (which resolves "today" via
+    # app_today()) and then asserts using raw date.today() can flake for
+    # roughly 5 hours out of every 24, whenever UTC and Karachi disagree
+    # on the calendar date.
+    return app_today(Config.TIMEZONE)
 
 
 @pytest.fixture
@@ -38,7 +48,7 @@ def test_khidmat_and_tuition_never_mixed_in_calculations_or_display(client, app)
     with app.app_context():
         student_id = Student.query.filter_by(name="BigTuitionStudent").first().id
     client.post(f"/students/{student_id}/fee-periods/add", data={"amount": "999999", "effective_from": "2026-01-01"})
-    today_iso = date.today().isoformat()
+    today_iso = _today().isoformat()
     client.post(
         f"/students/{student_id}/invoices/add",
         data={"period_start": today_iso[:8] + "01", "period_end": today_iso},
@@ -77,7 +87,7 @@ def _seed_full_month(client):
     client.post("/rates/add", data={"source_id": sbhs_id, "rate": "250", "effective_from": "2026-01-01"})
     client.post("/rates/add", data={"source_id": sghs_id, "rate": "250", "effective_from": "2026-01-01"})
 
-    today_iso = date.today().isoformat()
+    today_iso = _today().isoformat()
     r = client.post("/sessions/parse-preview", json={"text": "Sbhs(7) & sghs(5-6:20)", "date": today_iso})
     preview = r.get_json()
     client.post("/sessions/confirm", json={"date": preview["date"], "raw_text": "Sbhs(7) & sghs(5-6:20)", "items": preview["items"]})
@@ -88,7 +98,7 @@ def _seed_full_month(client):
     with client.application.app_context():
         ahmed_id = Student.query.filter_by(name="Ahmed").first().id
     client.post(f"/students/{ahmed_id}/fee-periods/add", data={"amount": "10000", "effective_from": "2026-01-01"})
-    month_start = date.today().replace(day=1).isoformat()
+    month_start = _today().replace(day=1).isoformat()
     client.post(f"/students/{ahmed_id}/invoices/add", data={"period_start": month_start, "period_end": today_iso})
 
     client.post("/adjustments/add", data={"type": "bonus", "amount": "2750", "reason": "Other activities"})
@@ -116,7 +126,7 @@ def test_critical_acceptance_dataset_khidmat_tuition_other_never_blended(client,
     client.post("/rates/add", data={"source_id": sbhs_id, "rate": "250", "effective_from": "2026-01-01"})
     client.post("/rates/add", data={"source_id": sghs_id, "rate": "250", "effective_from": "2026-01-01"})
 
-    today_iso = date.today().isoformat()
+    today_iso = _today().isoformat()
     preview = client.post(
         "/sessions/parse-preview", json={"text": "Sbhs(7) & sghs(5-6:20)", "date": today_iso}
     ).get_json()
@@ -131,7 +141,7 @@ def test_critical_acceptance_dataset_khidmat_tuition_other_never_blended(client,
     with app.app_context():
         ahmed_id = Student.query.filter_by(name="Ahmed").first().id
     client.post(f"/students/{ahmed_id}/fee-periods/add", data={"amount": "10000", "effective_from": "2026-01-01"})
-    month_start = date.today().replace(day=1).isoformat()
+    month_start = _today().replace(day=1).isoformat()
     client.post(f"/students/{ahmed_id}/invoices/add", data={"period_start": month_start, "period_end": today_iso})
 
     client.post("/adjustments/add", data={"type": "bonus", "amount": "2000", "reason": "Other activities"})
@@ -142,8 +152,8 @@ def test_critical_acceptance_dataset_khidmat_tuition_other_never_blended(client,
     from app.services.calculation_engine import effective_hourly_rate
 
     with app.app_context():
-        start = date.today().replace(day=1)
-        end = date.today()
+        start = _today().replace(day=1)
+        end = _today()
         sessions = eq.get_sessions(1, start, end)
         khidmat_earnings = sum((Decimal(s.calculated_amount) for s in sessions), Decimal("0"))
         khidmat_minutes = sum(s.duration_minutes for s in sessions)
@@ -244,7 +254,7 @@ def test_dashboard_invalid_range_falls_back_to_this_month(client):
 
 def test_sessions_page_filters_by_date_from_calendar_click(client):
     _seed_full_month(client)
-    today_iso = date.today().isoformat()
+    today_iso = _today().isoformat()
     r = client.get(f"/sessions?date={today_iso}")
     assert r.status_code == 200
     assert b"clear filter" in r.data
@@ -252,7 +262,7 @@ def test_sessions_page_filters_by_date_from_calendar_click(client):
     from app.models import Session as SessionModel
 
     with client.application.app_context():
-        expected_count = SessionModel.query.filter_by(date=date.today()).count()
+        expected_count = SessionModel.query.filter_by(date=_today()).count()
     # Two source rows expected (Sbhs + sghs) from the combined quick-add.
     assert expected_count == 2
 

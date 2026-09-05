@@ -2,10 +2,10 @@ import calendar as calendar_module
 from datetime import date
 from decimal import Decimal
 
-from flask import Blueprint, render_template, request, session
+from flask import Blueprint, current_app, render_template, request, session
 
 from app.extensions import db
-from app.models import Goal, IncomeSource, Student
+from app.models import CalendarAccount, CalendarDraft, Goal, IncomeSource, Student
 from app.models import Session as SessionModel
 from app.models import User
 from app.routes.auth import owner_only
@@ -18,7 +18,7 @@ from app.services.analytics_service import (
     source_contribution,
 )
 from app.services.calculation_engine import effective_hourly_rate
-from app.services.date_range import InvalidRangeError, previous_period, resolve_range
+from app.services.date_range import InvalidRangeError, app_today, previous_period, resolve_range
 from app.services.tuition_service import invoice_display_status
 
 bp = Blueprint("dashboard", __name__)
@@ -87,7 +87,7 @@ def _pct_change(current: Decimal, previous: Decimal):
 @owner_only
 def index():
     user = db.session.get(User, session["user_id"])
-    today = date.today()
+    today = app_today(current_app.config["TIMEZONE"])
 
     range_key = request.args.get("range", "this_month")
     if range_key not in ("this_month", "last_month", "this_year", "custom"):
@@ -186,15 +186,29 @@ def index():
     )
     source_breakdown = [{"label": k, "amount": float(v)} for k, v in source_totals.items() if v > 0]
 
-    # --- Calendar card: current month, days with sessions ---
+    # --- Calendar card: current month, days with sessions, broken down by
+    # source (not just a count) so the widget can render a color-coded dot
+    # per source -- e.g. SBHS vs SGHS -- rather than one undifferentiated
+    # dot. Color assignment mirrors routes/calendar.py's _source_color_index
+    # exactly (source_id % 5) so the same source always gets the same
+    # color everywhere in the app.
     cal_month_start = today.replace(day=1)
     _, days_in_month = calendar_module.monthrange(today.year, today.month)
     cal_month_end = today.replace(day=days_in_month)
     month_sessions_for_calendar = eq.get_sessions(user.id, cal_month_start, cal_month_end)
-    day_counts = {}
+    day_sources: dict = {}
     for s in month_sessions_for_calendar:
-        day_counts[s.date.day] = day_counts.get(s.date.day, 0) + 1
+        bucket = day_sources.setdefault(s.date.day, {})
+        entry = bucket.setdefault(s.source_id, {"source_id": s.source_id, "source": s.source.name, "count": 0, "color_index": s.source_id % 5})
+        entry["count"] += 1
+    day_counts = {day: sum(e["count"] for e in sources.values()) for day, sources in day_sources.items()}
+    day_sources_out = {day: list(sources.values()) for day, sources in day_sources.items()}
+    cal_sources_legend = list({src["source_id"]: src for sources in day_sources.values() for src in sources.values()}.values())
+    cal_sources_legend.sort(key=lambda s: s["source"])
     first_weekday = (cal_month_start.weekday() + 1) % 7  # convert Mon=0 to Sun=0 for a Sun-first grid
+
+    calendar_account = CalendarAccount.query.filter_by(user_id=user.id).first()
+    needs_review_count = CalendarDraft.query.filter_by(user_id=user.id, status="pending").count()
 
     goal = Goal.query.filter_by(user_id=user.id).first()
     month_actuals = goals_service.compute_month_actuals(user.id, today)
@@ -247,7 +261,11 @@ def index():
         cal_days_in_month=days_in_month,
         cal_first_weekday=first_weekday,
         cal_day_counts=day_counts,
+        cal_day_sources=day_sources_out,
+        cal_sources_legend=cal_sources_legend,
         cal_today_day=today.day,
+        calendar_account=calendar_account,
+        needs_review_count=needs_review_count,
         goal=goal,
         goal_progress=goal_progress,
         trends=trends,

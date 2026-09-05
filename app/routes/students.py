@@ -1,11 +1,12 @@
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
 
 from app.extensions import db
 from app.models import Adjustment, AuditLog, FeePeriod, Invoice, Payment, Student
 from app.routes.auth import owner_only
+from app.services.date_range import app_today
 from app.services.tuition_service import (
     FeePeriodRange,
     FeeResolutionError,
@@ -36,7 +37,7 @@ def _invoice_summary(invoice: Invoice):
     adj_total = sum(
         (Decimal(a.amount) if a.type == "bonus" else -Decimal(a.amount) for a in adjustments), Decimal("0")
     )
-    display_status = invoice_display_status(Decimal(invoice.amount), total_paid, invoice.due_date, date.today())
+    display_status = invoice_display_status(Decimal(invoice.amount), total_paid, invoice.due_date, app_today(current_app.config["TIMEZONE"]))
     return total_paid, remaining, display_status, adj_total, payments, adjustments
 
 
@@ -91,7 +92,7 @@ def detail(student_id):
             }
         )
 
-    return render_template("student_detail.html", student=student, fee_periods=fee_periods, invoice_rows=invoice_rows, today=date.today())
+    return render_template("student_detail.html", student=student, fee_periods=fee_periods, invoice_rows=invoice_rows, today=app_today(current_app.config["TIMEZONE"]))
 
 
 @bp.route("/students/<int:student_id>/toggle-active", methods=["POST"])
@@ -267,7 +268,7 @@ def add_payment(invoice_id):
 
     # Recompute and persist the invoice's stored status from actual payments received.
     new_total_paid = total_paid + amount
-    invoice.status = invoice_display_status(Decimal(invoice.amount), new_total_paid, invoice.due_date, date.today())
+    invoice.status = invoice_display_status(Decimal(invoice.amount), new_total_paid, invoice.due_date, app_today(current_app.config["TIMEZONE"]))
 
     db.session.add(AuditLog(user_id=user_id, action="payment_added", entity_type="payment", entity_id=payment.id))
     db.session.commit()
@@ -310,7 +311,7 @@ def add_adjustment():
         return redirect(redirect_to)
 
     try:
-        adj_date = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else date.today()
+        adj_date = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else app_today(current_app.config["TIMEZONE"])
     except ValueError:
         flash("Invalid date.", "error")
         return redirect(redirect_to)

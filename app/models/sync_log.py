@@ -30,5 +30,10 @@ class SyncLog(db.Model):
     status = db.Column(db.String(20), nullable=False, default=STATUS_SUCCESS)
     error_text = db.Column(db.Text, nullable=True)
 
+    # "manual" (Sync Now button) or "webhook" (Google push notification).
+    # Purely informational -- every other field/behavior is identical
+    # regardless of what triggered the run.
+    trigger = db.Column(db.String(20), nullable=False, default="manual")
+
     def __repr__(self):
         return f"<SyncLog user={self.user_id} {self.started_at} status={self.status}>"

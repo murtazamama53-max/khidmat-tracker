@@ -3,7 +3,7 @@ import io
 from datetime import date
 from decimal import Decimal
 
-from flask import Blueprint, Response, render_template, request, session
+from flask import Blueprint, Response, current_app, render_template, request, session
 
 from app.models import IncomeSource, Student
 from app.routes.auth import owner_only
@@ -14,7 +14,7 @@ from app.services.analytics_service import (
     source_contribution,
 )
 from app.services.calculation_engine import effective_hourly_rate
-from app.services.date_range import InvalidRangeError, resolve_range
+from app.services.date_range import InvalidRangeError, app_today, resolve_range
 
 bp = Blueprint("reports", __name__)
 
@@ -31,7 +31,7 @@ def _parse_date_arg(name):
 
 def _gather_report_data(user_id: int):
     """Shared by the HTML report page and both export endpoints, so a report and its export always agree."""
-    today = date.today()
+    today = app_today(current_app.config["TIMEZONE"])
     range_key = request.args.get("range", "this_month")
     if range_key not in ("this_month", "last_month", "this_year", "custom"):
         range_key = "this_month"

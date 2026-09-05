@@ -1,14 +1,15 @@
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 
 from app.extensions import db
 from app.models import AuditLog, IncomeSource, RateHistory
 from app.models import Session as SessionModel
 from app.routes.auth import owner_only
 from app.services import calculation_engine as calc
+from app.services.date_range import app_today
 from app.services.parser import parse_input
 from app.services.rate_service import RatePeriod, RateResolutionError, resolve_rate
 
@@ -45,7 +46,7 @@ def list_sessions():
 
     all_sessions = query.order_by(SessionModel.date.desc(), SessionModel.id.desc()).all()
     sources = IncomeSource.query.filter_by(user_id=user_id).all()
-    return render_template("sessions.html", sessions=all_sessions, sources=sources, today=date.today(), filtered_date=filtered_date)
+    return render_template("sessions.html", sessions=all_sessions, sources=sources, today=app_today(current_app.config["TIMEZONE"]), filtered_date=filtered_date)
 
 
 @bp.route("/sessions/parse-preview", methods=["POST"])
@@ -60,7 +61,7 @@ def parse_preview():
     user_id = session["user_id"]
     data = request.get_json(silent=True) or {}
     raw_text = (data.get("text") or "").strip()
-    date_str = data.get("date") or date.today().isoformat()
+    date_str = data.get("date") or app_today(current_app.config["TIMEZONE"]).isoformat()
 
     try:
         session_date = datetime.strptime(date_str, "%Y-%m-%d").date()

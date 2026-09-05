@@ -1,9 +1,8 @@
-from datetime import date
-
 from flask import Blueprint, current_app, jsonify, request, session
 
 from app.routes.auth import owner_only
 from app.services.assistant_service import EXAMPLE_QUESTIONS, answer_question
+from app.services.date_range import app_today
 
 bp = Blueprint("assistant", __name__)
 
@@ -27,7 +26,8 @@ def ask():
     if len(question) > 300:
         return jsonify({"error": "That question is too long."}), 400
 
-    answer = answer_question(user_id, question, date.today(), currency=current_app.config["CURRENCY"])
+    today = app_today(current_app.config["TIMEZONE"])
+    answer = answer_question(user_id, question, today, currency=current_app.config["CURRENCY"])
     return jsonify({"answer": answer.text})
 
 

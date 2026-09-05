@@ -34,6 +34,15 @@ class CalendarConfigError(RuntimeError):
     """Raised when GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI aren't configured."""
 
 
+class SyncTokenExpiredError(RuntimeError):
+    """
+    Raised when Google rejects a stored syncToken (HTTP 410 Gone) --
+    happens if the token is too old, the calendar's sharing settings
+    changed, or Google simply invalidated it. The only valid recovery per
+    Google's own docs is to drop the token and do a full resync.
+    """
+
+
 def _client_config(client_id: str, client_secret: str, redirect_uri: str) -> dict:
     return {
         "web": {
@@ -108,39 +117,148 @@ def _build_credentials(refresh_token: str, client_id: str, client_secret: str):
 
 
 def fetch_events(
-    refresh_token: str, client_id: str, client_secret: str, calendar_id: str, time_min: str, time_max: str
-) -> List[dict]:
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+    calendar_id: str,
+    time_min: Optional[str] = None,
+    time_max: Optional[str] = None,
+    sync_token: Optional[str] = None,
+) -> Tuple[List[dict], Optional[str]]:
     """
-    Real network call. Returns raw Google Calendar API event dicts
-    (the same shape services/calendar_sync.py expects), for the given
-    ISO8601 time window. Uses singleEvents=True so recurring events are
-    already expanded into individual occurrences with their own IDs.
+    Real network call. Returns (events, next_sync_token).
+
+    Two mutually exclusive modes, matching Google's own API constraints
+    (a request cannot mix a time window with a syncToken):
+      - Full sync: pass time_min/time_max (sync_token=None). Used for the
+        very first sync, and as the automatic fallback whenever a stored
+        sync_token is rejected as expired.
+      - Incremental sync: pass sync_token (time_min/time_max=None).
+        Returns only what changed (including deletions, as
+        status="cancelled" items) since that token was issued.
+
+    Either mode returns a next_sync_token (only present on the final
+    page) to store for the next incremental sync. Raises
+    SyncTokenExpiredError on HTTP 410, which is Google's documented
+    signal that the token is no longer valid and a full resync is
+    required -- callers should catch this, clear the stored token, and
+    retry as a full sync.
+
+    Uses singleEvents=True + showDeleted=True in both modes (required for
+    showDeleted to appear in incremental diffs, and kept consistent
+    between full and incremental requests per Google's guidance that
+    changing these parameters between the two invalidates the sync
+    relationship).
     """
     import google.auth.transport.requests
     from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+
+    if sync_token and (time_min or time_max):
+        raise ValueError("fetch_events: sync_token and time_min/time_max are mutually exclusive.")
 
     credentials = _build_credentials(refresh_token, client_id, client_secret)
     credentials.refresh(google.auth.transport.requests.Request())  # access token stays in-memory only
 
     service = build("calendar", "v3", credentials=credentials)
     events: List[dict] = []
+    next_sync_token: Optional[str] = None
     page_token = None
     while True:
-        result = (
-            service.events()
-            .list(
-                calendarId=calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                singleEvents=True,
-                orderBy="startTime",
-                showDeleted=True,
-                pageToken=page_token,
-            )
-            .execute()
-        )
+        list_kwargs = {
+            "calendarId": calendar_id,
+            "singleEvents": True,
+            "showDeleted": True,
+            "pageToken": page_token,
+        }
+        if sync_token:
+            list_kwargs["syncToken"] = sync_token
+        else:
+            list_kwargs["timeMin"] = time_min
+            list_kwargs["timeMax"] = time_max
+            list_kwargs["orderBy"] = "startTime"
+
+        try:
+            result = service.events().list(**list_kwargs).execute()
+        except HttpError as e:
+            status = getattr(getattr(e, "resp", None), "status", None)
+            if status == 410 and sync_token:
+                raise SyncTokenExpiredError(
+                    "Google's sync token has expired; a full resync is required."
+                ) from e
+            raise
+
         events.extend(result.get("items", []))
+        next_sync_token = result.get("nextSyncToken", next_sync_token)
         page_token = result.get("nextPageToken")
         if not page_token:
             break
-    return events
+    return events, next_sync_token
+
+
+def create_watch_channel(
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+    calendar_id: str,
+    channel_id: str,
+    channel_token: str,
+    webhook_url: str,
+) -> Tuple[str, Optional[int]]:
+    """
+    Real network call: registers a push-notification channel with Google
+    for this calendar (events().watch()). Returns (resource_id,
+    expiration_epoch_ms_or_None).
+
+    channel_id is our own generated UUID identifying this channel.
+    channel_token is a locally-generated secret Google will echo back on
+    every notification via the X-Goog-Channel-Token header -- this is
+    Google's own documented verification mechanism, not a substitute for
+    it: routes/calendar.py's webhook handler rejects any request whose
+    token doesn't match exactly.
+
+    Google requires webhook_url to be a public HTTPS address; will raise
+    if given a plain http:// or localhost URL (i.e. this will not work
+    against a local dev server).
+    """
+    import google.auth.transport.requests
+    from googleapiclient.discovery import build
+
+    credentials = _build_credentials(refresh_token, client_id, client_secret)
+    credentials.refresh(google.auth.transport.requests.Request())
+
+    service = build("calendar", "v3", credentials=credentials)
+    body = {
+        "id": channel_id,
+        "type": "web_hook",
+        "address": webhook_url,
+        "token": channel_token,
+    }
+    result = service.events().watch(calendarId=calendar_id, body=body).execute()
+    resource_id = result["resourceId"]
+    expiration = result.get("expiration")  # epoch milliseconds, as a string
+    return resource_id, (int(expiration) if expiration else None)
+
+
+def stop_watch_channel(
+    refresh_token: str, client_id: str, client_secret: str, channel_id: str, resource_id: str
+) -> None:
+    """Real network call: tells Google to stop sending notifications for
+    this channel (used on disconnect, and when replacing an old channel
+    with a freshly-renewed one). Safe to call even if the channel has
+    already expired -- Google returns a 404, which is swallowed here
+    since the end state (no active channel) is the same either way."""
+    import google.auth.transport.requests
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+
+    credentials = _build_credentials(refresh_token, client_id, client_secret)
+    credentials.refresh(google.auth.transport.requests.Request())
+
+    service = build("calendar", "v3", credentials=credentials)
+    try:
+        service.channels().stop(body={"id": channel_id, "resourceId": resource_id}).execute()
+    except HttpError as e:
+        status = getattr(getattr(e, "resp", None), "status", None)
+        if status not in (404, 410):
+            raise

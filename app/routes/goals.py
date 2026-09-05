@@ -1,12 +1,12 @@
-from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
 
 from app.extensions import db
 from app.models import AuditLog, Goal
 from app.routes.auth import owner_only
 from app.services import goals_service
+from app.services.date_range import app_today
 
 bp = Blueprint("goals", __name__)
 
@@ -16,7 +16,7 @@ bp = Blueprint("goals", __name__)
 def index():
     user_id = session["user_id"]
     goal = Goal.query.filter_by(user_id=user_id).first()
-    actuals = goals_service.compute_month_actuals(user_id, date.today())
+    actuals = goals_service.compute_month_actuals(user_id, app_today(current_app.config["TIMEZONE"]))
     progress = goals_service.compute_progress(goal, actuals)
     return render_template("goals.html", goal=goal, progress=progress)
 

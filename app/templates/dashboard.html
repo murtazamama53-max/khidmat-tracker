@@ -160,19 +160,55 @@
     <canvas id="trendChart" height="90"></canvas>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="calendarWidget">
     <div class="panel-title">Calendar</div>
     <div class="panel-subtitle">{{ cal_month_name }} {{ cal_year }}</div>
-    <div class="cal-grid">
+
+    <div class="cal-sync-status">
+      {% if calendar_account %}
+        <span class="cal-sync-dot cal-sync-connected"></span>
+        <span>
+          Google Calendar connected
+          {% if calendar_account.last_sync_at %}· synced <span id="calLastSync" data-iso="{{ calendar_account.last_sync_at.isoformat() }}">just now</span>{% endif %}
+          {% if calendar_account.watch_channel_id %}· <span class="cal-sync-live">live sync on</span>{% endif %}
+        </span>
+      {% else %}
+        <span class="cal-sync-dot cal-sync-off"></span>
+        <span><a href="{{ url_for('calendar.index') }}">Connect Google Calendar</a></span>
+      {% endif %}
+    </div>
+    {% if needs_review_count and needs_review_count > 0 %}
+      <a href="{{ url_for('calendar.index') }}" class="cal-needs-review">{{ needs_review_count }} event{{ 's' if needs_review_count != 1 }} need review →</a>
+    {% endif %}
+
+    {% if cal_sources_legend %}
+    <div class="cal-legend">
+      {% for src in cal_sources_legend %}
+        <span class="cal-legend-item"><span class="cal-dot cal-dot-{{ src.color_index }}"></span>{{ src.source }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="cal-grid" id="calGrid" data-year="{{ cal_year }}" data-month="{{ cal_month }}">
       {% for wd in ['S','M','T','W','T','F','S'] %}<div class="cal-wd">{{ wd }}</div>{% endfor %}
       {% for _ in range(cal_first_weekday) %}<div></div>{% endfor %}
       {% for day in range(1, cal_days_in_month + 1) %}
-        {% set count = cal_day_counts.get(day, 0) %}
-        <a href="{{ url_for('sessions.list_sessions', date=('%04d-%02d-%02d'|format(cal_year, cal_month, day))) }}"
-           class="cal-day {{ 'has-sessions' if count > 0 }} {{ 'is-today' if day == cal_today_day }}"
-           title="{{ count }} session(s)">{{ day }}</a>
+        {% set sources_today = cal_day_sources.get(day, []) %}
+        <button type="button"
+           class="cal-day {{ 'has-sessions' if sources_today }} {{ 'is-today' if day == cal_today_day }}"
+           data-date="{{ '%04d-%02d-%02d'|format(cal_year, cal_month, day) }}"
+           onclick="selectCalDay(this)">
+          {{ day }}
+          {% if sources_today %}
+          <span class="cal-day-dots">
+            {% for src in sources_today[:3] %}<span class="cal-dot cal-dot-{{ src.color_index }}"></span>{% endfor %}
+          </span>
+          {% endif %}
+        </button>
       {% endfor %}
     </div>
+
+    <div id="calDayPanel" class="cal-day-panel" style="display:none;"></div>
   </div>
 </div>
 
@@ -370,5 +406,118 @@
       }
     });
   }
+</script>
+
+<script>
+  // --- Custom calendar widget: click a day for an inline detail panel,
+  // powered by /calendar/api/day and /calendar/api/month (JSON, read-only,
+  // @owner_only). No page reload -- and a light poll keeps it reflecting
+  // whatever the incremental sync / webhook system last wrote to the DB.
+  const CURRENCY = {{ currency|tojson }};
+  let selectedCalDate = null;
+
+  function fmtMoney(v) {
+    const n = parseFloat(v);
+    return CURRENCY + ' ' + n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+
+  async function selectCalDay(el) {
+    const date = el.dataset.date;
+    document.querySelectorAll('#calGrid .cal-day.is-selected').forEach(d => d.classList.remove('is-selected'));
+    if (selectedCalDate === date) {
+      // clicking the same day again collapses the panel
+      selectedCalDate = null;
+      document.getElementById('calDayPanel').style.display = 'none';
+      return;
+    }
+    el.classList.add('is-selected');
+    selectedCalDate = date;
+
+    const panel = document.getElementById('calDayPanel');
+    panel.style.display = 'block';
+    panel.innerHTML = '<p class="cal-day-panel-loading">Loading…</p>';
+
+    try {
+      const res = await fetch(`/calendar/api/day?date=${date}`);
+      const data = await res.json();
+      if (!res.ok) { panel.innerHTML = `<p class="cal-day-panel-empty">${data.error || 'Could not load that day.'}</p>`; return; }
+
+      const niceDate = new Date(date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
+      if (data.sessions.length === 0) {
+        panel.innerHTML = `<div class="cal-day-panel-header">${niceDate}</div><p class="cal-day-panel-empty">No sessions logged this day.</p>`;
+        return;
+      }
+
+      const rows = data.sessions.map(s => `
+        <div class="cal-day-session-row" onclick="window.location='/sessions/${s.id}'">
+          <span class="cal-dot cal-dot-${s.color_index}"></span>
+          <span class="cal-day-session-source">${s.source}</span>
+          <span class="cal-day-session-time">${s.start_time ? (s.start_time + '–' + s.end_time) : ''}</span>
+          <span class="cal-day-session-amount">${fmtMoney(s.amount)}</span>
+        </div>`).join('');
+
+      panel.innerHTML = `
+        <div class="cal-day-panel-header">${niceDate} · ${data.session_count} session${data.session_count === 1 ? '' : 's'}</div>
+        ${rows}
+        <div class="cal-day-panel-total">
+          <span>${data.total_hours} hrs total</span>
+          <span>${fmtMoney(data.total_amount)}</span>
+        </div>`;
+    } catch (err) {
+      panel.innerHTML = '<p class="cal-day-panel-empty">Could not load that day.</p>';
+    }
+  }
+
+  function formatRelativeTime(iso) {
+    const then = new Date(iso);
+    const diffSec = Math.round((Date.now() - then.getTime()) / 1000);
+    if (diffSec < 60) return 'just now';
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + 'm ago';
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + 'h ago';
+    return Math.floor(diffSec / 86400) + 'd ago';
+  }
+
+  function refreshLastSyncLabel() {
+    const el = document.getElementById('calLastSync');
+    if (el && el.dataset.iso) el.textContent = formatRelativeTime(el.dataset.iso);
+  }
+
+  async function refreshCalendarMonth() {
+    const grid = document.getElementById('calGrid');
+    if (!grid) return;
+    try {
+      const res = await fetch(`/calendar/api/month?year=${grid.dataset.year}&month=${grid.dataset.month}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      // Refresh per-day dots in place.
+      grid.querySelectorAll('.cal-day').forEach(dayEl => {
+        const day = String(parseInt(dayEl.dataset.date.slice(-2), 10));
+        const sources = data.days[day] || [];
+        let dotsEl = dayEl.querySelector('.cal-day-dots');
+        dayEl.classList.toggle('has-sessions', sources.length > 0);
+        if (sources.length > 0) {
+          const dotsHtml = sources.slice(0, 3).map(s => `<span class="cal-dot cal-dot-${s.color_index}"></span>`).join('');
+          if (!dotsEl) {
+            dotsEl = document.createElement('span');
+            dotsEl.className = 'cal-day-dots';
+            dayEl.appendChild(dotsEl);
+          }
+          dotsEl.innerHTML = dotsHtml;
+        } else if (dotsEl) {
+          dotsEl.remove();
+        }
+      });
+      // If the currently-open day panel might be stale, quietly refresh it too.
+      if (selectedCalDate) {
+        const openDay = document.querySelector(`#calGrid .cal-day[data-date="${selectedCalDate}"]`);
+        if (openDay) { openDay.classList.remove('is-selected'); selectCalDay(openDay); }
+      }
+    } catch (err) { /* silent -- this is a background refresh, not a user action */ }
+  }
+
+  refreshLastSyncLabel();
+  setInterval(refreshLastSyncLabel, 30000);
+  setInterval(refreshCalendarMonth, 60000);
 </script>
 {% endblock %}

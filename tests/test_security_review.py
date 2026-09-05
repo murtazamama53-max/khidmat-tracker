@@ -25,6 +25,7 @@ PUBLIC_OR_SPECIAL_ENDPOINTS = {
     "guest.calculate",
     "static",
     "settings.unlock",  # intentionally reachable while "locked" -- has its own auth check inside
+    "calendar.webhook",  # Google calls this with no session cookie; verified via channel token instead (see its own dedicated tests)
 }
 
 

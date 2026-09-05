@@ -17,6 +17,22 @@ def _normalize_database_url(url: str) -> str:
     return url
 
 
+def _safe_int_env(name: str, default: int) -> int:
+    """
+    int(os.environ.get(name, default)) crashes outright if the variable is
+    *set* but blank (PIN_AUTO_LOCK_MINUTES="") or non-numeric -- a real
+    production crash this app hit on Vercel. Optional numeric settings must
+    never take the whole app down; fall back to the safe default instead.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 # Vercel (and most serverless hosts) ship a read-only deployment bundle;
 # only /tmp is writable, and it is not guaranteed to persist between
 # invocations. SQLite is fine for local development but must not be relied
@@ -33,7 +49,13 @@ class Config:
     # importing a private name across modules.
     ON_SERVERLESS = _ON_SERVERLESS
 
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-key-change-me-in-.env")
+    # `or`, not a two-arg .get() -- SECRET_KEY="" (present but blank) must
+    # fall back to the placeholder too. Flask treats an empty string as
+    # "no secret key at all" (bool("") is False), which is exactly the
+    # RuntimeError this app hit on /setup in production. Falling back here
+    # means the *intentional* production guard below fires instead, with a
+    # clear message, rather than Flask's generic internal error.
+    SECRET_KEY = os.environ.get("SECRET_KEY") or "dev-key-change-me-in-.env"
 
     basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
     _default_sqlite_dir = "/tmp" if _ON_SERVERLESS else os.path.join(basedir, "instance")
@@ -64,12 +86,20 @@ class Config:
     PERMANENT_SESSION_LIFETIME = timedelta(minutes=45)
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
-    # Flip on when serving over HTTPS in production
-    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+    # Secure-by-default in production (HTTPS is assumed there; ProxyFix
+    # handles detecting it correctly behind Vercel's proxy), insecure-ok
+    # for local http://127.0.0.1 development. Still explicitly overridable
+    # via the env var either way.
+    _session_cookie_secure_raw = os.environ.get("SESSION_COOKIE_SECURE")
+    if _session_cookie_secure_raw is None or _session_cookie_secure_raw.strip() == "":
+        SESSION_COOKIE_SECURE = IS_PRODUCTION
+    else:
+        SESSION_COOKIE_SECURE = _session_cookie_secure_raw.strip().lower() == "true"
 
     # If the owner has set a PIN, auto-lock (require PIN re-entry, without
-    # a full logout) after this many minutes of inactivity.
-    PIN_AUTO_LOCK_MINUTES = int(os.environ.get("PIN_AUTO_LOCK_MINUTES", "10"))
+    # a full logout) after this many minutes of inactivity. Optional --
+    # blank or invalid values must fall back to the default, not crash.
+    PIN_AUTO_LOCK_MINUTES = _safe_int_env("PIN_AUTO_LOCK_MINUTES", 10)
 
     # Where encrypted backup files are written (never inside app/static/).
     # On serverless this is necessarily ephemeral -- see README for why
